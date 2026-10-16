@@ -40,6 +40,14 @@ codex plugin marketplace add "$(pwd)"
 codex plugin add supdance-canvas@supdance-local
 ```
 
+After installing the paired Agent tarball, the private GitHub repository can
+also be used as the marketplace source:
+
+```bash
+codex plugin marketplace add Blacklake-Go/supdance-canvas-codex --ref main
+codex plugin add supdance-canvas@supdance-local
+```
+
 Open a new Codex task and ask “打开 SupDance 画布”. The skill starts or reuses
 the local Agent, creates a one-use 60-second launch link, and opens it in the
 Codex browser. The website then connects to the local Agent automatically. If

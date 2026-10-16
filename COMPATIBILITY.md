@@ -7,7 +7,7 @@
 | Codex CLI | Plugin-aware Codex CLI; verified on `0.162.0-alpha.17.2` | CLI lists `supdance-canvas@supdance-local` installed and enabled; this task successfully called its live canvas tool. |
 | Node.js | `>=18` | Package declares Node 18 minimum; local workstation uses `v26.7.0`. |
 | SupDance plugin | `0.1.1` | Independent plugin manifest and `@supdance/canvas-agent` package. |
-| Plugin format | Codex local marketplace plus portable Agent Plugins 1.0.0 manifest | Codex CLI `0.162.0-alpha.17.2` installed and listed candidate `0.1.1` from the local marketplace in an isolated `CODEX_HOME`; removal of the plugin and marketplace also succeeded. The portable non-Codex install path has not been exercised. |
+| Plugin format | Codex local/Git marketplace plus portable Agent Plugins 1.0.0 manifest | Codex CLI `0.162.0-alpha.17.2` installed and listed candidate `0.1.1` from both the local checkout and the private GitHub marketplace in isolated `CODEX_HOME` directories. The portable non-Codex install path has not been exercised. |
 | MCP | Protocol version `6` | Kept aligned with the existing website Agent protocol. |
 | Website | Must implement header-authenticated `POST /events-ticket` and ticket-authenticated `GET /events` | Implemented in the paired website candidate; production deployment has not been confirmed. |
 | Operating system | macOS local Agent workflow | Verified on the current macOS workstation. Windows and Linux browser-launch behavior has not been checked. |
@@ -20,13 +20,16 @@ until a public or private npm release exists. Install the tarball produced by
 
 ### Candidate plugin install/uninstall — 2026-10-16
 
-- In an isolated Codex configuration, the local checkout was added as the
-  `supdance-local` marketplace and `supdance-canvas@supdance-local` installed
-  as version `0.1.1`.
-- `codex plugin list` confirmed the candidate version and enabled status;
-  `codex mcp list` showed the `supdance-canvas` server entry.
-- The plugin and marketplace were removed from the isolated configuration,
-  and the final plugin list contained no marketplace plugins.
+- In isolated Codex configurations, both the local checkout and
+  `Blacklake-Go/supdance-canvas-codex --ref main` were added as the
+  `supdance-local` marketplace; each installed `supdance-canvas` version
+  `0.1.1`.
+- The private Git marketplace resolved to commit
+  `d6fa109e326abf518dd1790c15f74dfb7af6b5fd`. `codex plugin list` confirmed
+  the candidate version and enabled status. The local-checkout installation
+  also showed the `supdance-canvas` server entry in `codex mcp list`.
+- In both isolated configurations, the plugin and marketplace were removed,
+  and the final plugin lists contained no marketplace plugins.
 - This verifies Codex CLI registration and removal. It does not load the
   candidate in a fresh interactive Codex task or verify its Agent against the
   production website; the installed live plugin and Agent remain `0.1.0`.
