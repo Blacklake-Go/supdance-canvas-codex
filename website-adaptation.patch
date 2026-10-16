@@ -1,0 +1,960 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index cf531fc..1a384ba 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,7 @@
+ 
+ ## Unreleased
+ 
+++ [新增] 新增独立 SupDance Canvas Codex 插件接入方案；本地 Agent 使用独立端口与 MCP 名称，网页凭证改走请求头和一次性 SSE 票据。
+ + [修复] KoyoSIM Server Mode 使用当前画布域名请求云端 API，确保跨子域部署仍携带主站登录会话。
+ + [修复] Canvas 云端自动保存改为读取远端快照并在写入后回读核对，发现跨设备版本冲突时保留本地内容且阻止生成。
+ + [修复] 云端图片任务恢复与项目自动保存持续核对登录账户，切换账户后不将旧账户结果或保存状态写入当前画布；Server Mode 同时拦截浏览器直连模型查询。
+diff --git a/canvas-agent/src/server/http.ts b/canvas-agent/src/server/http.ts
+index 8b98c10..f3f7ace 100644
+--- a/canvas-agent/src/server/http.ts
++++ b/canvas-agent/src/server/http.ts
+@@ -1,4 +1,5 @@
+ import { spawn } from "node:child_process";
++import { randomBytes } from "node:crypto";
+ import { readFile, stat } from "node:fs/promises";
+ import path from "node:path";
+ import express, { type NextFunction, type Request, type Response } from "express";
+@@ -23,6 +24,7 @@ export function startHttpServer() {
+ 
+     const initialWorkspace = ensureSiteWorkspace(config);
+     const session = new CanvasSession(initialWorkspace.activeThreadId || "");
++    const eventTickets = new Map<string, { origin: string; clientId: string; expiresAt: number }>();
+     const skillStore = new SkillStore(initialWorkspace.workspacePath);
+     /** 将 Agent 事件广播到所属线程或全部网页。 */
+     const emit = (type: string, payload: unknown) => {
+@@ -122,13 +124,34 @@ export function startHttpServer() {
+     });
+     app.get("/health", (_req, res) => res.json(session.health()));
+     app.get("/config", (_req, res) => res.json({ ok: true, protocolVersion: AGENT_PROTOCOL_VERSION, url: config.url, hasToken: true }));
+-    app.use((req, res, next) => {
+-        if (validToken(req, requestUrl(req, config), config.token)) return next();
+-        res.status(401).json({ ok: false, error: "invalid token" });
++    app.post("/events-ticket", (req, res) => {
++        if (!validToken(req, requestUrl(req, config), config.token)) return void res.status(401).json({ ok: false, error: "invalid token" });
++        const origin = String(req.headers.origin || "");
++        const clientId = String(req.body?.clientId || "");
++        config.origins ||= [];
++        if (!origin || !clientId || !config.origins.includes(origin)) return void res.status(403).json({ ok: false, error: "origin or client not allowed" });
++        const now = Date.now();
++        for (const [ticket, value] of eventTickets) if (now > value.expiresAt) eventTickets.delete(ticket);
++        const ticket = randomBytes(32).toString("base64url");
++        eventTickets.set(ticket, { origin, clientId, expiresAt: now + 60_000 });
++        res.setHeader("Cache-Control", "no-store");
++        res.json({ ok: true, ticket });
+     });
+     app.get("/events", (req, res) => {
++        const ticket = String(req.query.ticket || "");
++        const grant = eventTickets.get(ticket);
++        eventTickets.delete(ticket);
++        const origin = String(req.headers.origin || "");
++        const clientId = String(req.query.clientId || "");
++        if (!grant || Date.now() > grant.expiresAt || grant.origin !== origin || grant.clientId !== clientId) {
++            return void res.status(401).json({ ok: false, error: "invalid event ticket" });
++        }
+         session.openEvents(requestUrl(req, config), res, ensureSiteWorkspace(config).activeThreadId || "");
+     });
++    app.use((req, res, next) => {
++        if (validToken(req, requestUrl(req, config), config.token)) return next();
++        res.status(401).json({ ok: false, error: "invalid token" });
++    });
+     app.post("/canvas/state", (req, res) => {
+         session.updateState(req.body, String(req.query.clientId || "") || undefined);
+         res.json({ ok: true });
+@@ -520,6 +543,7 @@ function requestUrl(req: Request, config: CanvasAgentConfig) {
+ /** 设置跨域响应头并记录通过 token 授权的来源。 */
+ function setCors(req: Request, res: Response, url: URL, config: CanvasAgentConfig) {
+     const origin = req.headers.origin;
++    if (origin && origin !== "https://canvas.supdance.com") return false;
+     res.setHeader("Access-Control-Allow-Origin", origin || "*");
+     res.setHeader("Access-Control-Allow-Headers", "content-type,x-canvas-agent-token");
+     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+@@ -535,9 +559,9 @@ function setCors(req: Request, res: Response, url: URL, config: CanvasAgentConfi
+ }
+ 
+ /** 校验请求查询参数或请求头中的连接 token。 */
+-function validToken(req: Request, url: URL, token: string) {
++function validToken(req: Request, _url: URL, token: string) {
+     const header = req.headers["x-canvas-agent-token"];
+-    return url.searchParams.get("token") === token || header === token || (Array.isArray(header) && header.includes(token));
++    return header === token || (Array.isArray(header) && header.includes(token));
+ }
+ 
+ /** 向 Agent 提示词追加本轮图片附件引用说明。 */
+diff --git a/docs/content/docs/overview/codex-app-plugin.mdx b/docs/content/docs/overview/codex-app-plugin.mdx
+index a0f404c..c0166f3 100644
+--- a/docs/content/docs/overview/codex-app-plugin.mdx
++++ b/docs/content/docs/overview/codex-app-plugin.mdx
+@@ -1,51 +1,48 @@
+ ---
+-title: Codex App Plugin
+-description: Install and use the Infinite Canvas plugin in Codex App
++title: SupDance Canvas Codex Plugin
++description: Install the independent SupDance Canvas plugin in Codex
+ ---
+ 
+-# Codex App Plugin
++# SupDance Canvas Codex Plugin
+ 
+-The plugin connects Codex to a local Canvas Agent, allowing Codex to open Infinite Canvas, read and create nodes, connect nodes, and start generation workflows. Its source is in `plugins/infinite-canvas/`.
++The independent SupDance Canvas Codex plugin is maintained in a separate
++`supdance-canvas-codex` source checkout. It includes its own local Agent, MCP
++server, and canvas skills. The Agent package is not published to npm; install it
++from the supplied source checkout or package archive.
+ 
+-## Ask Codex to install it
++## Install
+ 
+-Send this request to Codex:
+-
+-```text
+-Install the Infinite Canvas Codex plugin from https://github.com/basketikun/infinite-canvas.git.
+-Clone it to ~/plugins/infinite-canvas, verify plugins/infinite-canvas/.codex-plugin/plugin.json,
+-add the repository to my personal marketplace with `codex plugin marketplace add ~`,
+-then install `infinite-canvas@personal`. Validate the installation and tell me whether a new
+-conversation is required to load the Skill and MCP tools.
+-```
+-
+-## Manual installation
++From the plugin source checkout:
+ 
+ ```bash
+-mkdir -p ~/plugins
+-git clone https://github.com/basketikun/infinite-canvas.git ~/plugins/infinite-canvas
+-codex plugin marketplace add ~
+-codex plugin add infinite-canvas@personal
+-```
+-
+-The personal marketplace entry must point to `./plugins/infinite-canvas/plugins/infinite-canvas`. Start a new Codex conversation after installation so the Skill and MCP tools load completely.
+-
+-For development from this repository:
+-
+-```bash
+-cd /path/to/infinite-canvas
++cd packages/agent
++npm ci
++npm run build
++npm pack
++npm install -g ./supdance-canvas-agent-0.1.1.tgz
++cd ../..
+ codex plugin marketplace add "$(pwd)"
+-codex plugin add infinite-canvas@infinite-canvas-local
++codex plugin add supdance-canvas@supdance-local
+ ```
+ 
+-## Usage
++Open a new Codex task and ask “Open SupDance Canvas”. The plugin starts or
++reuses the local Agent and opens the website with a one-use connection link.
++
++## Verify
+ 
+-In a new Codex conversation, ask it to open Infinite Canvas, create a canvas, and connect Codex. The plugin starts Canvas Agent, reads its connection URL and token, opens `https://canvas.best/`, and creates and connects a canvas. It starts a local frontend only when explicitly requested.
++Use `codex plugin list` to confirm the plugin is enabled, then verify that a
++fresh task can call `canvas_get_state` and read the current board. A text-node
++operation can verify website writes without invoking image generation.
+ 
+-You can then ask Codex to summarize the current canvas, create prompts from selected nodes, or organize nodes into a generation workflow.
++Agent 0.1.1 requires the matching website connection update: token-authenticated
++requests use headers, and the event stream uses a one-use ticket. Do not connect
++Agent 0.1.1 to an older website build that still sends long-lived tokens in
++query strings. Image generation and credit settlement require separate testing.
+ 
+-Reinstall or refresh the plugin after changing its manifest, MCP configuration, Skills, exposed MCP tools, app, or entry scripts. The agent's default MCP command is:
++## Remove
+ 
+ ```bash
+-npx -y @basketikun/canvas-agent@latest mcp
++codex plugin remove supdance-canvas@supdance-local
++codex plugin marketplace remove supdance-local
++npm uninstall -g @supdance/canvas-agent
+ ```
+diff --git a/docs/content/docs/overview/codex-app-plugin.zh-CN.mdx b/docs/content/docs/overview/codex-app-plugin.zh-CN.mdx
+index ed6a1d3..f5f3c3b 100644
+--- a/docs/content/docs/overview/codex-app-plugin.zh-CN.mdx
++++ b/docs/content/docs/overview/codex-app-plugin.zh-CN.mdx
+@@ -1,140 +1,45 @@
+ ---
+-title: Codex App 插件
+-description: 在 Codex App 中安装并使用 Infinite Canvas 插件
++title: SupDance Canvas Codex 插件
++description: 在 Codex 中安装独立的 SupDance Canvas 插件
+ ---
+ 
+-# Codex App 插件
++# SupDance Canvas Codex 插件
+ 
+-Infinite Canvas 提供了一个 Codex App 插件，用来把 Codex 和本地 Canvas Agent 连接起来。安装后，你可以直接在 Codex 中说“打开 Infinite Canvas”，让 Codex 打开画布、读取节点、创建节点并触发生成流程。
++独立的 SupDance Canvas Codex 插件维护在单独的 `supdance-canvas-codex`
++源码仓库中，包含本地 Agent、MCP 服务和画布技能。Agent 包尚未发布到 npm，
++请从提供的源码仓库或安装包进行安装。
+ 
+-插件源码位于仓库的 `plugins/infinite-canvas/` 目录。
++## 安装
+ 
+-## 安装方式
+-
+-### 让 Codex 自动安装
+-
+-把下面这段发给 Codex：
+-
+-```text
+-请从 https://github.com/basketikun/infinite-canvas.git 安装 Infinite Canvas Codex 插件。
+-请 clone 仓库到 ~/plugins/infinite-canvas，确认 plugins/infinite-canvas/.codex-plugin/plugin.json 存在，
+-把 plugins/infinite-canvas 加入 personal marketplace，先运行 codex plugin marketplace add ~，
+-再运行 codex plugin add infinite-canvas@personal。
+-安装后请校验插件，并告诉我是否需要开启一个新对话来加载新技能和 MCP 工具。
+-```
+-
+-这种方式适合不想手动改 marketplace 配置的用户。Codex 会完成 clone、写入 marketplace、安装插件和基础校验。
+-
+-### 手动安装
+-
+-推荐把仓库 clone 到 Codex personal marketplace 默认会引用的位置：
++在插件源码仓库中运行：
+ 
+ ```bash
+-mkdir -p ~/plugins
+-git clone https://github.com/basketikun/infinite-canvas.git ~/plugins/infinite-canvas
+-```
+-
+-确保 `~/.agents/plugins/marketplace.json` 中有 Infinite Canvas 条目。这里的 `path` 要指向仓库里的插件子目录：
+-
+-```json
+-{
+-  "name": "personal",
+-  "interface": {
+-    "displayName": "Personal"
+-  },
+-  "plugins": [
+-    {
+-      "name": "infinite-canvas",
+-      "source": {
+-        "source": "local",
+-        "path": "./plugins/infinite-canvas/plugins/infinite-canvas"
+-      },
+-      "policy": {
+-        "installation": "AVAILABLE",
+-        "authentication": "ON_INSTALL"
+-      },
+-      "category": "Productivity"
+-    }
+-  ]
+-}
+-```
+-
+-然后注册 personal marketplace 并安装插件：
+-
+-```bash
+-codex plugin marketplace add ~
+-codex plugin add infinite-canvas@personal
+-```
+-
+-安装完成后，建议新建一个 Codex 对话，让新的 skill 和 MCP 工具完整加载。
+-
+-### 本仓库开发调试安装
+-
+-如果你正在 Infinite Canvas 仓库中开发插件，可以直接使用仓库自带的 marketplace：
+-
+-```bash
+-cd /path/to/infinite-canvas
++cd packages/agent
++npm ci
++npm run build
++npm pack
++npm install -g ./supdance-canvas-agent-0.1.1.tgz
++cd ../..
+ codex plugin marketplace add "$(pwd)"
+-codex plugin add infinite-canvas@infinite-canvas-local
+-```
+-
+-仓库内的 `.agents/plugins/marketplace.json` 已经指向 `./plugins/infinite-canvas`，适合开发者本地调试。
+-
+-## 使用插件
+-
+-新建 Codex 对话后，可以直接说：
+-
+-```text
+-打开 Infinite Canvas 新建画布 并连接好Codex
++codex plugin add supdance-canvas@supdance-local
+ ```
+ 
+-插件会启动本地 Canvas Agent，读取连接地址和 token，然后在右侧打开 `https://canvas.best/` 并自动新建、连接画布。只有明确要求使用本地项目时，插件才会启动本地前端。
+-
+-画布打开后可以继续让 Codex 操作画布：
++新建 Codex 任务并说“打开 SupDance 画布”。插件会启动或复用本地 Agent，
++再通过一次性连接链接打开网站。
+ 
+-```text
+-读取当前画布并总结节点结构
+-根据选中节点创建一组生图提示词
+-把这些节点整理成一个生成流程
+-```
++## 验收
+ 
+-## 更新插件
++用 `codex plugin list` 确认插件已启用，再在全新任务里调用 `canvas_get_state`
++读取当前画布。创建文本节点可验证网页写入，不会触发生图。
+ 
+-普通业务代码变更通常不需要更新插件。只有改了下面这些内容时，才建议重新安装或刷新插件：
++Agent 0.1.1 需要配套的网站连接改动：Token 通过请求头认证，事件流使用一次性票据。
++旧版网站仍会把长期 Token 放进请求查询串，因此不要将 Agent 0.1.1 连接到旧版网站。
++生图和积分结算需要单独验收。
+ 
+-- `plugins/infinite-canvas/.codex-plugin/plugin.json`
+-- `plugins/infinite-canvas/.mcp.json`
+-- `plugins/infinite-canvas/skills/` 下的技能说明
+-- 插件暴露的 MCP、app 或入口脚本
+-
+-重新安装后建议开启新对话，避免旧对话继续使用缓存中的技能和 MCP 工具。
+-
+-## 手动排查
+-
+-插件默认通过下面的 MCP 命令启动 Canvas Agent：
++## 移除
+ 
+ ```bash
+-npx -y @basketikun/canvas-agent@latest mcp
++codex plugin remove supdance-canvas@supdance-local
++codex plugin marketplace remove supdance-local
++npm uninstall -g @supdance/canvas-agent
+ ```
+-
+-如果需要手动排查，先启动画布：
+-
+-```bash
+-cd web
+-bun install
+-bun run dev
+-```
+-
+-然后启动本地 Agent：
+-
+-```bash
+-npx -y @basketikun/canvas-agent@latest
+-```
+-
+-从 Agent 输出或 `http://127.0.0.1:17371/config` 读取本地地址和 token 后，打开：
+-
+-```text
+-<画布网页地址>/canvas?mode=new#agentUrl=<Local URL>&agentToken=<Connect token>
+-```
+-
+-`mode=new` 会让网页自动创建具体画布并连接本地 Agent，不需要手动点击“新建画布”。
+diff --git a/docs/content/docs/progress/pending-test.mdx b/docs/content/docs/progress/pending-test.mdx
+index 1cfa86a..ae1a360 100644
+--- a/docs/content/docs/progress/pending-test.mdx
++++ b/docs/content/docs/progress/pending-test.mdx
+@@ -69,6 +69,7 @@ The current release needs manual verification in these areas:
+ - Multi-image resize: resizing the root node while child images are expanded should keep the group expanded and resize normally without triggering nested React updates or an application error.
+ - Multi-image alternatives: expanded images should use up to four columns so larger batches stay compact; double-clicking any completed child image should preview that exact image without changing the primary image. Every completed image, including the primary image, should provide an independent download action, while alternatives should also keep clearly legible create-copy and set-primary actions in both themes. Create-copy should add an independent image node to the right of the group, select it, and leave the original image group unchanged.
+ - Canvas Agent startup, MCP status, model and permission controls, approvals, version reporting, diagnostics, streaming responses, history consistency, multi-tab isolation, and local Skill management.
++- SupDance Canvas Codex Agent 0.1.1 candidate: deploy the paired website source before connecting the new package; verify the plugin loads in a fresh Codex task, `canvas_get_state` reads the live board, and a non-generative text-node operation is reflected on the page. Confirm the website uses `127.0.0.1:17372`, stores the long-lived token only in tab `sessionStorage`, sends it only in request headers, and never exposes it in query strings or browser history. Confirm the SSE ticket is one-use, bound to origin and client ID, expires after 60 seconds, and is renewed after connection loss on the existing roughly 3-second retry cadence. Verify local Agent restart recovery. No image generation or credit debit is part of this check. The source candidate has not been deployed to production.
+ - Canvas Agent credential redaction: Codex and Claude CLI stderr containing Bearer tokens, `sk-` keys, explicit API key/token/authorization assignments, ANSI formatting, or credentials split across output chunks should reach neither debug logs nor browser diagnostic events in plaintext; ordinary stderr text should remain intact.
+ - Image API model parameters: `gpt-image-*` generation and edit requests should omit `response_format`, while `dall-e-*` requests should continue sending `response_format: "b64_json"`.
+ - Image URL persistence: canvas and image-workbench generation should download each remote API result only once, validate it as a decodable image, and persist it in IndexedDB; `200` responses containing non-image data should fail, stopping canvas generation during download should not save or apply the result, CORS-blocked but displayable images should keep their original URL without an empty storage key, and plugin calls should still receive Data URLs whenever the remote image is readable.
+diff --git a/docs/content/docs/progress/pending-test.zh-CN.mdx b/docs/content/docs/progress/pending-test.zh-CN.mdx
+index e41025e..816e766 100644
+--- a/docs/content/docs/progress/pending-test.zh-CN.mdx
++++ b/docs/content/docs/progress/pending-test.zh-CN.mdx
+@@ -54,6 +54,7 @@ description: 当前版本已实现但仍需人工验证的变更项
+ - Agent Markdown 样式：右侧 Agent 回复中的代码块应为横向占满消息区域、无语言标题和无双层边框的紧凑代码条，单行内容不应保留纵向大面积空白，复制操作仅在悬停时弱化显示；行内代码、链接在浅色和深色主题下应清晰；点击外部链接后应显示中文紧凑确认弹窗，长路径能够正常换行且复制、继续打开和关闭操作可用；点击 `/Users/`、`/home/` 等本地绝对文件路径时应改为提示在系统文件管理器中定位，支持复制路径，且浏览器地址不应跳转为 localhost 文件路径。
+ - Agent 工具确认模式：右侧面板标题栏不应再显示「工具确认」开关；对话输入框左下方应显示确认模式选择，默认选中「自动确认」，画布写入工具应直接执行；切换为「手动确认」后，画布写入工具应在对话中展示等待确认卡片，并支持批准或拒绝。
+ - Canvas Agent Codex 升级：启动 Canvas Agent 后应输出 Canvas Agent、内置 Codex 和本机 Codex 版本，实际运行的内置 Codex 应为 0.146.0；内置与本机版本不一致、未安装本机 Codex，或 npm 存在更新版本时应显示对应升级提醒，npm 检查失败不应阻止服务启动；Agent 应能正常连接 Codex、创建或恢复会话、发送消息并调用画布工具，运行中停止任务应只中断当前 turn，随后无需重启 Agent 即可继续发送新任务。
++- SupDance Canvas Codex Agent 0.1.1 候选：先部署配套网站源码，再用全新 Codex 任务确认插件工具加载；`canvas_get_state` 应读取线上画布，且非生成类文本节点操作应反映到网页。确认默认地址为 `127.0.0.1:17372`，长期 Token 只保存在当前标签页 `sessionStorage` 并通过请求头发送，不出现在请求查询串或浏览器历史中。SSE 票据须绑定网站 Origin 与客户端 ID、使用一次后失效、60 秒过期；断线后按当前约 3 秒重试节奏申请新票据，并验证 Agent 重启后能重新连接。本项不执行生图或扣积分；当前网站改动仍是源码候选，尚未部署。
+ - Canvas Agent Debug：普通启动应通过公共 logger 输出 Info、Warn 和 Error 日志；使用 `npx -y @basketikun/canvas-agent@latest --debug` 启动后还应输出 Debug 日志并显示日志文件路径，终端统一采用“`YYYY-MM-DD HH:mm:ss` 级别 消息 详情”的纯文本单行格式，`~/.infinite-canvas/logs/` 下应按启动日期生成相同格式的 `canvas-agent-YYYY-MM-DD.log`，同一天多次启动应追加到同一文件；日志中不应出现连接 token 或图片 Data URL 原文。
+ - Canvas Agent 凭据脱敏：Codex 与 Claude CLI 的 stderr 包含 Bearer token、`sk-` 密钥、显式 API key/token/authorization 赋值、ANSI 样式或跨输出分片的凭据时，调试日志和网页诊断事件均不应出现明文；普通 stderr 文本应保持不变。
+ - Canvas Agent 配置权限：在 Linux 和 macOS 上保存配置后，`~/.infinite-canvas` 权限应为 `0700`，`canvas-agent.json` 权限应为 `0600`，已有的宽松权限也应被纠正；配置应能继续正常读写，Windows 启动不受影响。
+diff --git a/docs/content/docs/progress/todo.mdx b/docs/content/docs/progress/todo.mdx
+index 2c5325c..32a5910 100644
+--- a/docs/content/docs/progress/todo.mdx
++++ b/docs/content/docs/progress/todo.mdx
+@@ -7,3 +7,4 @@ description: Planned follow-up work
+ 
+ - Replace the Claude Code CLI adapter with a Claude Agent SDK adapter and improve the tool queue, following the [Local Agent Integration Plan](/docs/progress/local-agent-integration-plan).
+ - Add Skill installation from web search, Skill resource-file management, and controlled local-memory persistence.
++- Publish the independent SupDance Canvas Codex plugin and Agent package through an approved distribution source, then deploy the paired website connection change and complete live acceptance.
+diff --git a/docs/content/docs/progress/todo.zh-CN.mdx b/docs/content/docs/progress/todo.zh-CN.mdx
+index 4af4726..cba33a0 100644
+--- a/docs/content/docs/progress/todo.zh-CN.mdx
++++ b/docs/content/docs/progress/todo.zh-CN.mdx
+@@ -9,3 +9,4 @@ description: 当前项目后续值得处理的事项
+ 
+ - 本地 Agent 接入后续：按[本地 Agent 接入规划](/zh-CN/docs/progress/local-agent-integration-plan)把 Claude Code CLI Adapter 升级为 Claude Agent SDK Adapter，并完善工具队列体验。
+ - Agent Skill 后续：补充网络检索安装、Skill 资源文件管理和可控的本地记忆沉淀。
++- 通过已批准的分发来源发布独立 SupDance Canvas Codex 插件和 Agent 包，再部署配套网站连接改动并完成线上验收。
+diff --git a/web/src/components/agent/agent-chat-message.tsx b/web/src/components/agent/agent-chat-message.tsx
+index 5e5d785..6af9202 100644
+--- a/web/src/components/agent/agent-chat-message.tsx
++++ b/web/src/components/agent/agent-chat-message.tsx
+@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
+ 
+ import i18n from "@/i18n";
+ import { useCopyText } from "@/hooks/use-copy-text";
++import { useAgentAssetUrl } from "@/hooks/use-agent-asset-url";
+ import { canvasThemes } from "@/lib/canvas-theme";
+ import { useAgentStore, type AgentCanvasReference, type AgentPendingApproval, type AgentSkillReference } from "@/stores/use-agent-store";
+ import { resolveAgentMessageAssetUrl, revealAgentLocalFile } from "@/services/api/canvas-agent";
+@@ -159,7 +160,7 @@ function AgentCanvasMention({ reference, theme }: { reference: AgentCanvasRefere
+     const node = useAgentStore((state) => state.canvasContext?.snapshot.nodes.find((item) => item.id === reference.nodeId));
+     const endpoint = useAgentStore((state) => state.url);
+     const token = useAgentStore((state) => state.token);
+-    const previewUrl = resolveAgentMessageAssetUrl(endpoint, token, reference.previewUrl || node?.metadata?.content || "");
++    const previewUrl = useAgentAssetUrl(resolveAgentMessageAssetUrl(endpoint, token, reference.previewUrl || node?.metadata?.content || ""));
+     const previewText = reference.text || node?.metadata?.content || node?.metadata?.prompt;
+     const Icon = canvasReferenceIcon(reference.kind);
+     return (
+@@ -501,15 +502,7 @@ function AgentMessageAttachments({ attachments, alignRight }: { attachments: Age
+         <>
+             <div className={`mt-1.5 flex flex-wrap gap-1.5 ${alignRight ? "justify-end" : "justify-start"}`}>
+                 {attachments.map((item) => (
+-                    <img
+-                        key={item.id}
+-                        src={item.url}
+-                        alt={item.name}
+-                        title={t("agent.message.viewLarge")}
+-                        className="size-10 cursor-zoom-in rounded-lg object-cover"
+-                        draggable={false}
+-                        onClick={() => setPreviewUrl(item.url)}
+-                    />
++                    <AgentMessageAttachmentThumbnail key={item.id} item={item} title={t("agent.message.viewLarge")} onClick={setPreviewUrl} />
+                 ))}
+             </div>
+             {previewUrl ? (
+@@ -521,6 +514,12 @@ function AgentMessageAttachments({ attachments, alignRight }: { attachments: Age
+     );
+ }
+ 
++function AgentMessageAttachmentThumbnail({ item, title, onClick }: { item: AgentChatAttachment; title: string; onClick: (url: string) => void }) {
++    const url = useAgentAssetUrl(item.url);
++    if (!url) return null;
++    return <img src={url} alt={item.name} title={title} className="size-10 cursor-zoom-in rounded-lg object-cover" draggable={false} onClick={() => onClick(url)} />;
++}
++
+ function toolCardState(title: string, text: string, detail?: unknown) {
+     const raw = `${title} ${text} ${normalizeText(objectField(detail, "error"))}`;
+     const lower = raw.toLowerCase();
+diff --git a/web/src/components/agent/agent-connect-view.tsx b/web/src/components/agent/agent-connect-view.tsx
+index ccdf29d..7b29359 100644
+--- a/web/src/components/agent/agent-connect-view.tsx
++++ b/web/src/components/agent/agent-connect-view.tsx
+@@ -34,7 +34,7 @@ export function AgentConnectView({
+ }) {
+     const { t } = useTranslation();
+     const { message } = App.useApp();
+-    const steps = [{ title: t("agent.connect.pluginTitle"), text: t("agent.connect.pluginText") }, { title: t("agent.connect.directTitle"), text: t("agent.connect.directText"), command: "npx -y @basketikun/canvas-agent@latest" }];
++    const steps = [{ title: t("agent.connect.pluginTitle"), text: t("agent.connect.pluginText") }, { title: t("agent.connect.directTitle"), text: t("agent.connect.directText"), command: "supdance-canvas-agent open" }];
+     const statusText = connectError ? t("agent.status.failed") : connected ? activity : enabled ? t("agent.status.connecting") : t("agent.status.disconnected");
+     const statusColor = connectError ? "#dc2626" : connected ? "#16a34a" : enabled ? "#d97706" : theme.node.muted;
+     const copyCommand = (command: string) => {
+@@ -115,8 +115,8 @@ export function AgentConnectView({
+                                 {t("agent.connect.autoDiscover")}
+                             </div>
+                         </div>
+-                        <Button className="!h-8 !px-3" type={enabled ? "default" : "primary"} icon={<PlugZap className="size-4" />} onClick={onToggleEnabled}>
+-                            {t(enabled ? "agent.connect.disconnect" : "agent.connect.connect")}
++                        <Button className="!h-8 !px-3" type={enabled && !connectError ? "default" : "primary"} icon={<PlugZap className="size-4" />} onClick={onToggleEnabled}>
++                            {t(enabled && !connectError ? "agent.connect.disconnect" : "agent.connect.connect")}
+                         </Button>
+                     </div>
+                     <div className="mt-3 grid gap-2.5">
+diff --git a/web/src/components/agent/local-agent-panel.tsx b/web/src/components/agent/local-agent-panel.tsx
+index cdb02b2..7f35e94 100644
+--- a/web/src/components/agent/local-agent-panel.tsx
++++ b/web/src/components/agent/local-agent-panel.tsx
+@@ -71,7 +71,7 @@ const MAX_ATTACHMENTS = 6;
+ const MAX_ATTACHMENT_PAYLOAD_BYTES = 28 * 1024 * 1024;
+ const MESSAGE_PREVIEW_LONG_EDGE = 192;
+ const MESSAGE_PREVIEW_MAX_LENGTH = 500_000;
+-const DEFAULT_AGENT_URL = "http://127.0.0.1:17371";
++const DEFAULT_AGENT_URL = "http://127.0.0.1:17372";
+ const AGENT_PROTOCOL_VERSION = 6;
+ const HISTORY_RETRY_DELAYS_MS = [0, 150, 350, 700, 1200];
+ const AGENT_REASONING_EFFORTS = new Set<AgentReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+@@ -180,6 +180,7 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
+     const pendingToolRef = useRef<AgentPendingToolCall | null>(null);
+     const autoConnectRef = useRef(false);
+     const connectedRef = useRef(false);
++    const eventSourceRef = useRef<TicketAgentEventSource | null>(null);
+     const errorLoggedRef = useRef(false);
+     const attachmentUrlsRef = useRef(new Set<string>());
+     const clientIdRef = useRef("");
+@@ -342,7 +343,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
+     useEffect(() => {
+         if (!clientReady || !enabled || !token.trim()) return;
+         localStorage.setItem("canvas-agent-url", endpoint);
+-        localStorage.setItem("canvas-agent-token", token);
++        localStorage.removeItem("canvas-agent-token");
++        sessionStorage.setItem("canvas-agent-token", token);
+         const clientId = clientIdRef.current;
+         let disposed = false;
+         let protocolRejected = false;
+@@ -355,7 +357,8 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
+                 if (isCurrentConnection()) addEventLog(rt("conversationSyncFailed"), error);
+             });
+         };
+-        const source = new EventSource(`${endpoint}/events?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`);
++        const source = new TicketAgentEventSource(endpoint, token, clientId);
++        eventSourceRef.current = source;
+         source.addEventListener("hello", (event) => {
+             if (!isCurrentConnection()) return;
+             const hello = parseEventData<AgentHelloEvent>(event);
+@@ -566,14 +569,11 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
+                 pendingApprovals: [],
+             });
+             useAgentSkillStore.getState().reset();
+-            if (!wasConnected) {
+-                source.close();
+-                setAgentState({ enabled: false });
+-            }
+         };
+         return () => {
+             disposed = true;
+             source.close();
++            if (eventSourceRef.current === source) eventSourceRef.current = null;
+             connectedRef.current = false;
+             loadThreadsSequenceRef.current += 1;
+             useAgentSkillStore.getState().reset();
+@@ -906,6 +906,12 @@ export function LocalAgentPanel({ embedded, headless, autoConnect }: { embedded?
+ 
+     const toggleAgentConnection = async ({ silent = false }: { silent?: boolean } = {}) => {
+         if (enabled) {
++            if (connectError) {
++                errorLoggedRef.current = false;
++                eventSourceRef.current?.reconnect();
++                setAgentState({ connected: false, activity: rt("connecting"), connectError: "", silentConnect: false });
++                return;
++            }
+             clearAgentSession({ enabled: false, connected: false, activity: rt("offline"), connectError: "" });
+             return;
+         }
+@@ -1526,7 +1532,7 @@ async function attachmentNodeOps(endpoint: string, token: string, clientId: stri
+             const id = String(item.id || "");
+             const attachmentId = String(item.attachmentId || "");
+             if (!id || !attachmentId) throw new Error(rt("invalidAttachmentNode"));
+-            const res = await fetch(`${endpoint}/agent/attachments/${encodeURIComponent(attachmentId)}?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`);
++            const res = await fetch(`${endpoint}/agent/attachments/${encodeURIComponent(attachmentId)}?clientId=${encodeURIComponent(clientId)}`, { headers: { "x-canvas-agent-token": token } });
+             if (!res.ok) {
+                 const body = (await res.json().catch(() => null)) as { error?: string } | null;
+                 throw new Error(body?.error || rt("attachmentReadFailed"));
+@@ -1569,7 +1575,7 @@ async function importGeneratedImages(endpoint: string, token: string, item: Agen
+         sources.map(async (source, index) => {
+             const response = source.startsWith("data:image/")
+                 ? await fetch(source)
+-                : await fetch(`${endpoint}/agent/local-image?token=${encodeURIComponent(token)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: source }) });
++                : await fetch(`${endpoint}/agent/local-image`, { method: "POST", headers: { "content-type": "application/json", "x-canvas-agent-token": token }, body: JSON.stringify({ path: source }) });
+             if (!response.ok) throw new Error(rt("generatedImageReadFailed"));
+             const blob = await response.blob();
+             const upload = await uploadImage(blob);
+@@ -1602,3 +1608,98 @@ function readDataUrl(file: Blob) {
+ function delay(ms: number) {
+     return new Promise<void>((resolve) => setTimeout(resolve, ms));
+ }
++
++class TicketAgentEventSource {
++    private listeners = new Map<string, Set<EventListener>>();
++    private nativeSource: EventSource | null = null;
++    private closed = false;
++    private connecting = false;
++    private failures = 0;
++    private offlineReported = false;
++    private retryTimer: ReturnType<typeof setTimeout> | null = null;
++    onerror: ((event: Event) => void) | null = null;
++
++    private static readonly OFFLINE_FAILURE_THRESHOLD = 3;
++
++    constructor(private endpoint: string, private token: string, private clientId: string) {
++        void this.connect();
++    }
++
++    addEventListener(type: string, listener: EventListener) {
++        const listeners = this.listeners.get(type) || new Set<EventListener>();
++        listeners.add(listener);
++        this.listeners.set(type, listeners);
++        this.nativeSource?.addEventListener(type, listener);
++    }
++
++    close() {
++        this.closed = true;
++        if (this.retryTimer) clearTimeout(this.retryTimer);
++        this.retryTimer = null;
++        this.nativeSource?.close();
++        this.nativeSource = null;
++    }
++
++    reconnect() {
++        if (this.closed) return;
++        if (this.retryTimer) clearTimeout(this.retryTimer);
++        this.retryTimer = null;
++        this.nativeSource?.close();
++        this.nativeSource = null;
++        this.failures = 0;
++        this.offlineReported = false;
++        void this.connect();
++    }
++
++    private async connect() {
++        if (this.closed || this.connecting) return;
++        this.connecting = true;
++        try {
++            const response = await fetch(`${this.endpoint}/events-ticket`, {
++                method: "POST",
++                headers: { "content-type": "application/json", "x-canvas-agent-token": this.token },
++                body: JSON.stringify({ clientId: this.clientId }),
++            });
++            const data = await response.json().catch(() => ({})) as { ticket?: string };
++            if (!response.ok || !data.ticket) throw new Error("Agent event ticket request failed");
++            if (this.closed) return;
++            const source = new EventSource(`${this.endpoint}/events?ticket=${encodeURIComponent(data.ticket)}&clientId=${encodeURIComponent(this.clientId)}`);
++            this.nativeSource = source;
++            for (const [type, listeners] of this.listeners) for (const listener of listeners) source.addEventListener(type, listener);
++            source.onopen = () => {
++                this.failures = 0;
++                this.offlineReported = false;
++            };
++            source.onerror = (event) => {
++                if (this.nativeSource !== source) return;
++                source.close();
++                this.nativeSource = null;
++                this.reportFailure(event);
++                this.scheduleConnect();
++            };
++        } catch {
++            if (!this.closed) {
++                this.reportFailure(new Event("error"));
++                this.scheduleConnect();
++            }
++        } finally {
++            this.connecting = false;
++        }
++    }
++
++    private scheduleConnect() {
++        if (this.closed || this.retryTimer) return;
++        this.retryTimer = setTimeout(() => {
++            this.retryTimer = null;
++            void this.connect();
++        }, 3000);
++    }
++
++    private reportFailure(event: Event) {
++        this.failures += 1;
++        if (this.failures >= TicketAgentEventSource.OFFLINE_FAILURE_THRESHOLD && !this.offlineReported) {
++            this.offlineReported = true;
++            this.onerror?.(event);
++        }
++    }
++}
+diff --git a/web/src/hooks/use-agent-asset-url.ts b/web/src/hooks/use-agent-asset-url.ts
+new file mode 100644
+index 0000000..a6a5dee
+--- /dev/null
++++ b/web/src/hooks/use-agent-asset-url.ts
+@@ -0,0 +1,29 @@
++import { useEffect, useState } from "react";
++
++import { loadAgentAssetObjectUrl } from "@/services/api/canvas-agent";
++import { useAgentStore } from "@/stores/use-agent-store";
++
++export function useAgentAssetUrl(value: string) {
++    const endpoint = useAgentStore((state) => state.url);
++    const token = useAgentStore((state) => state.token);
++    const [source, setSource] = useState("");
++
++    useEffect(() => {
++        const controller = new AbortController();
++        let objectUrl = "";
++        void loadAgentAssetObjectUrl(endpoint, token, value, controller.signal).then((url) => {
++            if (controller.signal.aborted) {
++                if (url.startsWith("blob:")) URL.revokeObjectURL(url);
++                return;
++            }
++            objectUrl = url.startsWith("blob:") ? url : "";
++            setSource(url);
++        });
++        return () => {
++            controller.abort();
++            if (objectUrl) URL.revokeObjectURL(objectUrl);
++        };
++    }, [endpoint, token, value]);
++
++    return source;
++}
+diff --git a/web/src/i18n/locales/en-US.ts b/web/src/i18n/locales/en-US.ts
+index 977f8a7..24765e3 100644
+--- a/web/src/i18n/locales/en-US.ts
++++ b/web/src/i18n/locales/en-US.ts
+@@ -1402,12 +1402,12 @@ export default {
+         },
+         "connect": {
+             "pluginTitle": "Option 1: Use the Codex plugin",
+-            "pluginText": "Install the Infinite Canvas plugin in the Codex app and launch the canvas through it. The plugin starts the local Agent and supplies the connection details automatically.",
++            "pluginText": "Install the SupDance Canvas plugin in the Codex app and launch the canvas through it. The plugin starts the local Agent and fills in the connection details automatically.",
+             "directTitle": "Option 2: Run the Agent directly",
+-            "directText": "Without the Codex plugin, run the command below in a terminal, then return here to connect or enter the Local URL and Connect token manually.",
++            "directText": "Without the Codex plugin, install the SupDance Canvas Agent package first, then run the command below. It starts the local Agent and opens the canvas with connection details filled in.",
+             "commandCopied": "Command copied",
+             "pluginReminder": "Codex plugin note",
+-            "pluginReminderText": "The tool list enters the Codex context and consumes additional tokens only after installing the Codex plugin or adding MCP manually. Running npx -y @basketikun/canvas-agent@latest alone does not install MCP.",
++            "pluginReminderText": "The SupDance Canvas tools enter Codex context only after installing the SupDance Canvas Codex plugin or configuring MCP manually. Starting the local Agent alone does not add MCP tools to Codex.",
+             "removePlugin": "Remove plugin",
+             "removeMcp": "Remove manual MCP",
+             "copyCommand": "Copy command",
+@@ -1418,7 +1418,7 @@ export default {
+             "disconnect": "Disconnect",
+             "connect": "Connect",
+             "localAddress": "Local address",
+-            "urlPlaceholder": "For example http://127.0.0.1:17371",
++            "urlPlaceholder": "For example http://127.0.0.1:17372",
+             "token": "Connection token",
+             "tokenPlaceholder": "Discover automatically or enter the Connect token"
+         },
+diff --git a/web/src/i18n/locales/es.ts b/web/src/i18n/locales/es.ts
+index 5beccbf..b0c9c4a 100644
+--- a/web/src/i18n/locales/es.ts
++++ b/web/src/i18n/locales/es.ts
+@@ -1402,12 +1402,12 @@ export default {
+         },
+         "connect": {
+             "pluginTitle": "Opción 1: utilizar el complemento Codex",
+-            "pluginText": "Instale el complemento Infinite Canvas en la aplicación Codex e inicie el lienzo a través de él. El complemento inicia el Agente local y proporciona los detalles de la conexión automáticamente.",
++            "pluginText": "Instale el complemento SupDance Canvas en la aplicación Codex e inicie el lienzo desde allí. El complemento inicia el Agent local y completa automáticamente los datos de conexión.",
+             "directTitle": "Opción 2: ejecutar el agente directamente",
+-            "directText": "Sin el complemento Codex, ejecute el siguiente comando en una terminal, luego regrese aquí para conectarse o ingrese la URL local y el token de conexión manualmente.",
++            "directText": "Si no usa el complemento Codex, instale primero SupDance Canvas Agent y luego ejecute el comando de abajo. Inicia el Agent local y abre el lienzo con los datos de conexión completos.",
+             "commandCopied": "Comando copiado",
+             "pluginReminder": "Nota del complemento del códice",
+-            "pluginReminderText": "La lista de herramientas ingresa al contexto del Codex y consume tokens adicionales solo después de instalar el complemento Codex o agregar MCP manualmente. Ejecutar npx -y @basketikun/canvas-agent@latest por sí solo no instala MCP.",
++            "pluginReminderText": "Las herramientas de SupDance Canvas se agregan al contexto de Codex al instalar el complemento SupDance Canvas o configurar MCP manualmente. Iniciar el Agent local por sí solo no agrega herramientas MCP a Codex.",
+             "removePlugin": "Eliminar complemento",
+             "removeMcp": "Quitar MCP manual",
+             "copyCommand": "comando copiar",
+@@ -1418,7 +1418,7 @@ export default {
+             "disconnect": "Desconectar",
+             "connect": "Conectar",
+             "localAddress": "dirección local",
+-            "urlPlaceholder": "Por ejemplo http://127.0.0.1:17371",
++            "urlPlaceholder": "Por ejemplo http://127.0.0.1:17372",
+             "token": "Token de conexión",
+             "tokenPlaceholder": "Descubra automáticamente o ingrese el token Connect"
+         },
+diff --git a/web/src/i18n/locales/ja-JP.ts b/web/src/i18n/locales/ja-JP.ts
+index 2e56c37..90cf68c 100644
+--- a/web/src/i18n/locales/ja-JP.ts
++++ b/web/src/i18n/locales/ja-JP.ts
+@@ -1402,12 +1402,12 @@ export default {
+         },
+         "connect": {
+             "pluginTitle": "方法 1: Codex でプラグインを使用する",
+-            "pluginText": "Codex アプリに Infinite Canvas プラグインをインストールした後、プラグインを介してキャンバスを起動すると、プラグインはローカル エージェントを自動的に起動し、接続情報を取得します。",
++            "pluginText": "Codex アプリに SupDance Canvas プラグインをインストールし、プラグインからキャンバスを起動します。プラグインがローカル Agent を起動し、接続情報を自動入力します。",
+             "directTitle": "方法 2: エージェントを直接実行する",
+-            "directText": "Codex プラグインを使用しない場合は、ターミナルで次のコマンドを実行し、Web ページに戻って接続するか、ローカル URL と接続トークンを手動で入力します。",
++            "directText": "Codex プラグインを使わない場合は、先に SupDance Canvas Agent をインストールしてから下のコマンドを実行してください。ローカル Agent が起動し、接続情報を入力したキャンバスを開きます。",
+             "commandCopied": "コマンドがコピーされました",
+             "pluginReminder": "Codex プラグインのリマインダー",
+-            "pluginReminderText": "Codex プラグインをインストールするか、手動で MCP を追加した後にのみ、ツール リストが Codex コンテキストに入り、トークンの消費量が増加します。 npx -y @basketikun/canvas-agent@latest を実行してローカル エージェントを起動するだけでは、MCP はインストールされません。",
++            "pluginReminderText": "SupDance Canvas Codex プラグインをインストールするか MCP を手動設定した後に、SupDance Canvas ツールが Codex コンテキストに追加されます。ローカル Agent を起動するだけでは MCP ツールは追加されません。",
+             "removePlugin": "プラグインを削除する",
+             "removeMcp": "手動 MCP を削除します",
+             "copyCommand": "コピーコマンド",
+@@ -1418,7 +1418,7 @@ export default {
+             "disconnect": "切断する",
+             "connect": "接続する",
+             "localAddress": "ローカルアドレス",
+-            "urlPlaceholder": "例: http://127.0.0.1:17371",
++            "urlPlaceholder": "例: http://127.0.0.1:17372",
+             "token": "接続トークン",
+             "tokenPlaceholder": "接続トークンを自動的に検出するか、手動で入力します"
+         },
+diff --git a/web/src/i18n/locales/ko-KR.ts b/web/src/i18n/locales/ko-KR.ts
+index 810a653..5caf84e 100644
+--- a/web/src/i18n/locales/ko-KR.ts
++++ b/web/src/i18n/locales/ko-KR.ts
+@@ -1402,12 +1402,12 @@ export default {
+         },
+         "connect": {
+             "pluginTitle": "방법 1: Codex에서 플러그인 사용",
+-            "pluginText": "Codex 앱에서 Infinite Canvas 플러그인을 설치한 후 플러그인을 통해 캔버스를 시작하면 플러그인이 자동으로 로컬 에이전트를 시작하고 연결 정보를 가져옵니다.",
++            "pluginText": "Codex 앱에 SupDance Canvas 플러그인을 설치하고 플러그인을 통해 캔버스를 시작하세요. 플러그인이 로컬 Agent를 시작하고 연결 정보를 자동으로 입력합니다.",
+             "directTitle": "방법 2: 에이전트를 직접 실행",
+-            "directText": "Codex 플러그인을 사용하지 않는 경우 터미널에서 다음 명령을 실행한 후 웹 페이지로 돌아가서 연결하거나 로컬 URL 및 연결 토큰을 수동으로 입력하세요.",
++            "directText": "Codex 플러그인을 사용하지 않는 경우 먼저 SupDance Canvas Agent를 설치한 다음 아래 명령을 실행하세요. 로컬 Agent를 시작하고 연결 정보가 입력된 캔버스 페이지를 엽니다.",
+             "commandCopied": "명령이 복사되었습니다.",
+             "pluginReminder": "Codex 플러그인 알림",
+-            "pluginReminderText": "Codex 플러그인을 설치하거나 MCP를 수동으로 추가한 후에만 도구 목록이 Codex 컨텍스트에 들어가고 토큰 소비가 늘어납니다. 단순히 npx -y @basketikun/canvas-agent@latest를 실행하여 로컬 에이전트를 시작하면 MCP가 설치되지 않습니다.",
++            "pluginReminderText": "SupDance Canvas Codex 플러그인을 설치하거나 MCP를 직접 설정해야 SupDance Canvas 도구가 Codex 컨텍스트에 추가됩니다. 로컬 Agent만 실행해도 MCP 도구는 추가되지 않습니다.",
+             "removePlugin": "플러그인 제거",
+             "removeMcp": "수동 MCP 제거",
+             "copyCommand": "복사 명령",
+@@ -1418,7 +1418,7 @@ export default {
+             "disconnect": "연결 끊기",
+             "connect": "연결하다",
+             "localAddress": "현지 주소",
+-            "urlPlaceholder": "예를 들어 http://127.0.0.1:17371",
++            "urlPlaceholder": "예를 들어 http://127.0.0.1:17372",
+             "token": "토큰 연결",
+             "tokenPlaceholder": "Connect 토큰을 자동으로 검색하거나 수동으로 입력합니다."
+         },
+diff --git a/web/src/i18n/locales/zh-CN.ts b/web/src/i18n/locales/zh-CN.ts
+index ffc969f..872b85a 100644
+--- a/web/src/i18n/locales/zh-CN.ts
++++ b/web/src/i18n/locales/zh-CN.ts
+@@ -1402,12 +1402,12 @@ export default {
+         },
+         "connect": {
+             "pluginTitle": "方式一：在 Codex 中使用插件",
+-            "pluginText": "在 Codex app 安装 Infinite Canvas 插件后，通过插件启动画布，插件会自动启动本地 Agent 并带上连接信息。",
++            "pluginText": "在 Codex app 安装 SupDance Canvas 插件后，通过插件启动画布，插件会自动启动本地 Agent 并填入连接信息。",
+             "directTitle": "方式二：直接运行 Agent",
+-            "directText": "不使用 Codex 插件时，在终端运行下面命令，再回到网页里连接或手动填入 Local URL 和 Connect token。",
++            "directText": "不使用 Codex 插件时，请先安装 SupDance Canvas Agent，再运行下面的命令；它会启动本地 Agent 并自动打开带连接信息的画布网页。",
+             "commandCopied": "命令已复制",
+             "pluginReminder": "Codex 插件提醒",
+-            "pluginReminderText": "只有安装 Codex 插件或手动添加 MCP 后，工具列表才会进入 Codex 上下文并增加 token 消耗；仅运行 npx -y @basketikun/canvas-agent@latest 启动本地 Agent 不会安装 MCP。",
++            "pluginReminderText": "只有安装 SupDance Canvas Codex 插件或手动配置 MCP 后，工具列表才会进入 Codex 上下文并增加 token 消耗。单独启动本地 Agent 不会把 MCP 工具加入 Codex。",
+             "removePlugin": "移除插件",
+             "removeMcp": "移除手动 MCP",
+             "copyCommand": "复制命令",
+@@ -1418,7 +1418,7 @@ export default {
+             "disconnect": "断开",
+             "connect": "连接",
+             "localAddress": "本地地址",
+-            "urlPlaceholder": "例如 http://127.0.0.1:17371",
++            "urlPlaceholder": "例如 http://127.0.0.1:17372",
+             "token": "连接 Token",
+             "tokenPlaceholder": "自动发现，或手动填入 Connect token"
+         },
+diff --git a/web/src/i18n/locales/zh-TW.ts b/web/src/i18n/locales/zh-TW.ts
+index 0f5493e..60b2c75 100644
+--- a/web/src/i18n/locales/zh-TW.ts
++++ b/web/src/i18n/locales/zh-TW.ts
+@@ -1402,12 +1402,12 @@ export default {
+         },
+         "connect": {
+             "pluginTitle": "方式一：在 Codex 中使用插件",
+-            "pluginText": "在 Codex app 安裝 Infinite Canvas 外掛程式後，透過外掛程式啟動畫布，外掛程式會自動啟動本地 Agent 並帶上連接資訊。",
++            "pluginText": "在 Codex app 安裝 SupDance Canvas 外掛程式後，透過外掛程式啟動畫布，外掛程式會自動啟動本地 Agent 並填入連線資訊。",
+             "directTitle": "方式二：直接運行 Agent",
+-            "directText": "不使用 Codex 外掛程式時，在終端機執行下方指令，再回到網頁連接或手動填入 Local URL 和 Connect token。",
++            "directText": "不使用 Codex 外掛程式時，請先安裝 SupDance Canvas Agent，再執行下方指令；它會啟動本地 Agent 並自動開啟已填入連線資訊的畫布網頁。",
+             "commandCopied": "命令已複製",
+             "pluginReminder": "Codex 插件提醒",
+-            "pluginReminderText": "只有在安裝 Codex 外掛程式或手動新增 MCP 後，工具清單才會進入 Codex 上下文並增加 token 消耗；僅執行 npx -y @basketikun/canvas-agent@latest 啟動本機 Agent 不會安裝 MCP。",
++            "pluginReminderText": "只有安裝 SupDance Canvas Codex 外掛程式或手動設定 MCP 後，工具清單才會進入 Codex 上下文並增加 token 消耗。單獨啟動本地 Agent 不會將 MCP 工具加入 Codex。",
+             "removePlugin": "移除插件",
+             "removeMcp": "移除手動 MCP",
+             "copyCommand": "複製指令",
+@@ -1418,7 +1418,7 @@ export default {
+             "disconnect": "斷開",
+             "connect": "連接",
+             "localAddress": "本地地址",
+-            "urlPlaceholder": "例如 http://127.0.0.1:17371",
++            "urlPlaceholder": "例如 http://127.0.0.1:17372",
+             "token": "連結 Token",
+             "tokenPlaceholder": "自動發現，或手動填入 Connect token"
+         },
+diff --git a/web/src/services/api/canvas-agent.ts b/web/src/services/api/canvas-agent.ts
+index b70722e..c4c232b 100644
+--- a/web/src/services/api/canvas-agent.ts
++++ b/web/src/services/api/canvas-agent.ts
+@@ -43,9 +43,9 @@ export type AgentSkillDraftResponse = { ok?: boolean; data?: AgentSkillDraft };
+ 
+ export async function postState(endpoint: string, token: string, clientId: string, snapshot: CanvasAgentSnapshot | null) {
+     try {
+-        const response = await fetch(`${endpoint}/canvas/state?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, {
++        const response = await fetch(`${endpoint}/canvas/state?clientId=${encodeURIComponent(clientId)}`, {
+             method: "POST",
+-            headers: { "content-type": "application/json" },
++            headers: { "content-type": "application/json", "x-canvas-agent-token": token },
+             body: JSON.stringify(snapshot ? { ...snapshot, hasCanvas: true } : { hasCanvas: false }),
+         });
+         return response.ok;
+@@ -56,7 +56,7 @@ export async function postState(endpoint: string, token: string, clientId: strin
+ 
+ export async function activateAgentClient(endpoint: string, token: string, clientId: string) {
+     try {
+-        await fetch(`${endpoint}/canvas/activate?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`, { method: "POST" });
++        await fetch(`${endpoint}/canvas/activate?clientId=${encodeURIComponent(clientId)}`, { method: "POST", headers: { "x-canvas-agent-token": token } });
+     } catch {}
+ }
+ 
+@@ -84,7 +84,24 @@ export function resolveAgentMessageAssetUrl(endpoint: string, token: string, val
+     const match = AGENT_MESSAGE_ASSET_PATTERN.exec(value);
+     if (!match) return value.startsWith("agent-asset:") ? "" : value;
+     const baseUrl = endpoint.trim().replace(/\/$/, "");
+-    return baseUrl && token ? `${baseUrl}/agent/message-assets/${match[1]}/${match[2]}?token=${encodeURIComponent(token)}` : "";
++    return baseUrl && token ? `${baseUrl}/agent/message-assets/${match[1]}/${match[2]}` : "";
++}
++
++export async function loadAgentAssetObjectUrl(endpoint: string, token: string, value: string, signal: AbortSignal) {
++    if (!value || value.startsWith("data:") || value.startsWith("blob:")) return value;
++    const baseUrl = endpoint.trim().replace(/\/$/, "");
++    if (!baseUrl || !token) return "";
++    try {
++        const target = new URL(value, baseUrl);
++        const base = new URL(baseUrl);
++        if (target.origin !== base.origin || !/^\/agent\/(?:message-assets|attachments)\//.test(target.pathname)) return value;
++        target.searchParams.delete("token");
++        const response = await fetch(target, { headers: { "x-canvas-agent-token": token }, signal });
++        if (!response.ok) return "";
++        return URL.createObjectURL(await response.blob());
++    } catch {
++        return "";
++    }
+ }
+ 
+ export function fetchCodexSkills(endpoint: string, token: string, forceReload = false) {
+@@ -116,8 +133,9 @@ export function setCodexSkillEnabled(endpoint: string, token: string, skill: Pic
+ }
+ 
+ export async function fetchAgentJson<T>(endpoint: string, token: string, path: string, init?: RequestInit) {
+-    const url = `${endpoint}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+-    const res = await fetch(url, init);
++    const headers = new Headers(init?.headers);
++    headers.set("x-canvas-agent-token", token);
++    const res = await fetch(`${endpoint}${path}`, { ...init, headers });
+     const data = (await res.json().catch(() => ({}))) as T & { error?: string; msg?: string };
+     if (!res.ok) throw new AgentApiError(res.status, data);
+     return data;
+diff --git a/web/src/stores/use-agent-store.ts b/web/src/stores/use-agent-store.ts
+index 7390b51..a64b4f9 100644
+--- a/web/src/stores/use-agent-store.ts
++++ b/web/src/stores/use-agent-store.ts
+@@ -95,14 +95,20 @@ type AgentStore = {
+ 
+ export const CANVAS_AGENT_PANEL_MOTION_MS = 500;
+ 
++function sessionAgentToken() {
++    if (typeof window === "undefined") return "";
++    localStorage.removeItem("canvas-agent-token");
++    return sessionStorage.getItem("canvas-agent-token") || "";
++}
++
+ export const useAgentStore = create<AgentStore>((set, get) => ({
+     width: typeof window === "undefined" ? 440 : Number(localStorage.getItem("canvas-agent-panel-width")) || 440,
+     panelOpen: false,
+     panelMounted: true,
+     panelClosing: false,
+     canvasContext: null,
+-    url: typeof window === "undefined" ? "http://127.0.0.1:17371" : localStorage.getItem("canvas-agent-url") || "http://127.0.0.1:17371",
+-    token: typeof window === "undefined" ? "" : localStorage.getItem("canvas-agent-token") || "",
++    url: typeof window === "undefined" ? "http://127.0.0.1:17372" : localStorage.getItem("canvas-agent-url") || "http://127.0.0.1:17372",
++    token: sessionAgentToken(),
+     connected: false,
+     enabled: false,
+     silentConnect: false,
+@@ -156,7 +162,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
+             return set({ connectError: silent ? "" : i18n.t("agent.state.invalidUrl") });
+         }
+         localStorage.setItem("canvas-agent-url", endpoint);
+-        localStorage.setItem("canvas-agent-token", token);
++        localStorage.removeItem("canvas-agent-token");
++        sessionStorage.setItem("canvas-agent-token", token);
+         // Only set enabled here; LocalAgentPanel's effect owns SSE initialization.
+         set({ url: endpoint, token, enabled: true, silentConnect: silent, fragmentBootstrap: false, activity: i18n.t("agent.status.connecting"), connectError: "" });
+     },

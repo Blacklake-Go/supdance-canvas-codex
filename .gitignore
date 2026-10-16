@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+packages/agent/node_modules/
+packages/agent/dist/
+packages/agent/*.tgz
+.DS_Store

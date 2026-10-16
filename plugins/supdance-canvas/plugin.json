@@ -1,0 +1,31 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "supdance-canvas",
+  "version": "0.1.1",
+  "description": "Connect Codex to the SupDance web canvas through the local SupDance Canvas Agent.",
+  "author": {
+    "name": "SupDance",
+    "url": "https://canvas.supdance.com"
+  },
+  "homepage": "https://canvas.supdance.com/canvas",
+  "license": "MIT",
+  "keywords": ["supdance", "canvas", "mcp", "codex"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "SupDance Canvas",
+        "shortDescription": "Open and operate your SupDance canvas from Codex.",
+        "longDescription": "Starts a local SupDance Agent, connects the SupDance canvas website, and gives Codex canvas tools.",
+        "developerName": "SupDance",
+        "category": "Productivity",
+        "capabilities": ["Canvas", "MCP", "Creative Workflow"],
+        "websiteURL": "https://canvas.supdance.com/canvas",
+        "defaultPrompt": [
+          "打开 SupDance 画布",
+          "读取当前画布并总结节点",
+          "在当前画布创建提示词流程"
+        ]
+      }
+    }
+  }
+}
