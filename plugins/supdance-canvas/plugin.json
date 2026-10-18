@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "supdance-canvas",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Connect Codex to the SupDance web canvas through the local SupDance Canvas Agent.",
   "author": {
     "name": "SupDance",
@@ -12,6 +12,7 @@
   "keywords": ["supdance", "canvas", "mcp", "codex"],
   "extensions": {
     "com.openai": {
+      "mcpServers": "./.mcp.json",
       "interface": {
         "displayName": "SupDance Canvas",
         "shortDescription": "Open and operate your SupDance canvas from Codex.",

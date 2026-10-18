@@ -1,6 +1,6 @@
 # Compatibility and acceptance
 
-## Release candidate plugin 0.1.4 / Agent 0.1.3 — 2026-10-18
+## Release candidate plugin 0.1.5 / Agent 0.1.3 — 2026-10-18
 
 | Layer | Result | Evidence and limit |
 | --- | --- | --- |
@@ -8,10 +8,10 @@
 | Codex CLI plugin | Connected | `supdance-canvas@supdance-local` is enabled. A fresh CLI session loaded the MCP tools, read the live board, and created one explicitly authorized text node. |
 | Website connection | Connected | Local Chrome opened `https://canvas.supdance.com/canvas`; the page displayed **Codex 已连接** and the text node. No connection token appeared in the browser URL. |
 | Agent restart | Reconnected automatically | An isolated candidate Agent on `127.0.0.1:17373` connected to the same live board. Stopping it changed the page to **连接失败**; restarting it restored **Codex 已连接** without user input. |
-| Desktop Codex app | Pending | Logs from the fresh task showed `No such file or directory` while launching the stdio MCP command. Plugin 0.1.4 starts the Agent through a login shell to load the user's package-manager PATH. The exact launcher completed an MCP initialize handshake under a restricted PATH; the desktop app still needs to install/reload 0.1.4 and pass a new-task check. |
+| Desktop Codex app | Pending | Logs from the fresh task showed `No such file or directory` while launching the stdio MCP command. Plugin 0.1.5 starts the Agent through a login shell and declares the `.mcp.json` path in the root OpenAI extension. The exact launcher completed an MCP initialize handshake under a restricted PATH. The desktop app must install/reload 0.1.5 and pass a new-task check. |
 | Paid generation | Not exercised | No image, video, or audio generation was invoked. Asset storage and credit settlement are outside this connection acceptance. |
 
-The isolated 0.1.3 Agent used `SUPDANCE_CANVAS_CONFIG_DIR` and port `17373`; it did not replace the unrelated `@supdance/canvas-agent-workbuddy` service on port `17372`. The 0.1.3 startup output does not print the long-lived connect token. Plugin 0.1.4 updates only the MCP launch wrapper; the Agent package remains 0.1.3.
+The isolated 0.1.3 Agent used `SUPDANCE_CANVAS_CONFIG_DIR` and port `17373`; it did not replace the unrelated `@supdance/canvas-agent-workbuddy` service on port `17372`. The 0.1.3 startup output does not print the long-lived connect token. Plugin 0.1.5 updates the MCP launch wrapper and declares the Codex MCP manifest; the Agent package remains 0.1.3.
 
 The successful CLI tool call used `--approve-for-me`. The default CLI policy on this workstation rejected the same MCP call with “MCP tool call requires approval, but approval policy is never.” Plugin registration alone does not imply tool calls are approved under every Codex policy.
 
@@ -22,7 +22,7 @@ The successful CLI tool call used `--approve-for-me`. The default CLI policy on 
 - **Protocol:** Agent/website protocol version 6. Browser requests use `x-canvas-agent-token`; SSE starts with a one-use, origin/client-bound ticket from `POST /events-ticket`. Ticket lifetime is 60 seconds.
 - **Agent reuse:** a newer patch in the same `0.1.x` line is accepted only if protocol 6 matches; unrelated, older, and incompatible services are rejected.
 - **Distribution:** local Codex marketplace and npm tarball. The Agent has not been published to npm; install from this repository's release tarball.
-- **GitHub marketplace:** a clean, isolated Codex configuration installed `supdance-canvas@supdance-local` version `0.1.4` from `Blacklake-Go/supdance-canvas-codex --ref main` after the `156bb98` push. The repository is currently private, so installers need repository access.
+- **GitHub marketplace:** a clean, isolated Codex configuration installed `supdance-canvas@supdance-local` version `0.1.4` from `Blacklake-Go/supdance-canvas-codex --ref main` after the `156bb98` push. Version 0.1.5 awaits a clean install check. The repository is currently private, so installers need repository access.
 - **Platforms:** macOS browser workflow was exercised. Windows and Linux launch behavior and the portable non-Codex plugin format are unverified.
 
 ## Website source provenance
@@ -35,6 +35,6 @@ The live site served `index-CwaX-uw5.js` and `index-BxQPPkSm.css` on 2026-10-18.
 
 The earlier 0.1.0 plugin loaded in a fresh Codex task and read a current board with `hasCanvas: true`; it created no content. That older live Agent recovered from a restart only after a manual **连接** click. This historical result should not be used as evidence for candidate 0.1.3. The separate current restart observation above establishes automatic browser reconnection for 0.1.3.
 
-## Desktop MCP launch investigation — candidate 0.1.4
+## Desktop MCP launch investigation — candidate 0.1.5
 
-The fresh desktop task's Codex log recorded `MCP startup failed: No such file or directory (os error 2)` for `supdance-canvas`. The plugin command name resolved in a login terminal but not in the desktop process environment. The Codex compatibility and portable MCP manifests now start `/bin/zsh -lc 'exec supdance-canvas-agent mcp'`. With `PATH=/usr/bin:/bin`, this launcher found the Homebrew-installed Agent and completed MCP `initialize` with server name `supdance-canvas-agent` and protocol `2025-06-18`. This verifies command resolution and stdio handshake; it does not yet prove desktop app loading. The next acceptance uses the refreshed plugin from a new desktop task.
+The fresh desktop task's Codex log recorded `MCP startup failed: No such file or directory (os error 2)` for `supdance-canvas`. The plugin command name resolved in a login terminal but not in the desktop process environment. The Codex compatibility and portable MCP manifests start `/bin/zsh -lc 'exec supdance-canvas-agent mcp'`. The root `plugin.json` also declares `mcpServers: "./.mcp.json"` under `extensions.com.openai`, because that extension replaces the `.codex-plugin/plugin.json` fallback. With `PATH=/usr/bin:/bin`, the launcher found the Homebrew-installed Agent and completed MCP `initialize` with server name `supdance-canvas-agent` and protocol `2025-06-18`. This verifies command resolution and stdio handshake, but not yet desktop app loading.
