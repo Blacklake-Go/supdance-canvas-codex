@@ -3,8 +3,8 @@
   "mcpServers": {
     "supdance-canvas": {
       "type": "stdio",
-      "command": "/bin/zsh",
-      "args": ["-lc", "exec supdance-canvas-agent mcp"]
+      "command": "./scripts/mcp-launcher.sh",
+      "args": []
     }
   }
 }
