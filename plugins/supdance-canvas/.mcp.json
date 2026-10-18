@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "supdance-canvas": {
-      "command": "supdance-canvas-agent",
-      "args": ["mcp"],
+      "command": "/bin/zsh",
+      "args": ["-lc", "exec supdance-canvas-agent mcp"],
       "startup_timeout_sec": 20,
       "tool_timeout_sec": 90
     }

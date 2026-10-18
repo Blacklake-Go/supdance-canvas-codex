@@ -1,6 +1,6 @@
 {
   "name": "supdance-canvas",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Connect Codex to the SupDance web canvas through the local SupDance Canvas Agent.",
   "author": { "name": "SupDance", "url": "https://canvas.supdance.com" },
   "homepage": "https://canvas.supdance.com/canvas",
