@@ -49,7 +49,11 @@ codex plugin marketplace add Blacklake-Go/supdance-canvas-codex --ref main
 codex plugin add supdance-canvas@supdance-local
 ```
 
-Open a new Codex task and ask “打开 SupDance 画布”. The skill starts or reuses
+Restart the ChatGPT desktop app after adding or updating this local plugin,
+then install it from the Plugins Directory and open a new Codex task. Local
+plugin changes are not guaranteed to load into an already-running app.
+
+Ask “打开 SupDance 画布”. The skill starts or reuses
 the local Agent, creates a one-use 60-second launch link, and opens it in the
 Codex browser. The website then connects to the local Agent automatically. If
 the Codex browser is unavailable, run `supdance-canvas-agent open` to use the

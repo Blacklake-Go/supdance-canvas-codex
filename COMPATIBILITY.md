@@ -8,7 +8,7 @@
 | Codex CLI plugin | Connected | `supdance-canvas@supdance-local` is enabled. A fresh CLI session loaded the MCP tools, read the live board, and created one explicitly authorized text node. |
 | Website connection | Connected | Local Chrome opened `https://canvas.supdance.com/canvas`; the page displayed **Codex 已连接** and the text node. No connection token appeared in the browser URL. |
 | Agent restart | Reconnected automatically | An isolated candidate Agent on `127.0.0.1:17373` connected to the same live board. Stopping it changed the page to **连接失败**; restarting it restored **Codex 已连接** without user input. |
-| Desktop Codex app | Open | A fresh desktop task did not expose the SupDance MCP tools although the CLI plugin is enabled. The app's plugin refresh/restart path remains unresolved. |
+| Desktop Codex app | Open | A fresh desktop task did not expose the SupDance MCP tools although the CLI plugin is enabled. Official local-marketplace guidance requires restarting the desktop app and installing from its Plugins Directory; that app-side cycle has not yet been verified. |
 | Paid generation | Not exercised | No image, video, or audio generation was invoked. Asset storage and credit settlement are outside this connection acceptance. |
 
 The isolated 0.1.3 Agent used `SUPDANCE_CANVAS_CONFIG_DIR` and port `17373`; it did not replace the unrelated `@supdance/canvas-agent-workbuddy` service on port `17372`. The 0.1.3 startup output does not print the long-lived connect token.
