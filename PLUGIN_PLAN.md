@@ -37,7 +37,7 @@ flowchart LR
 
 ### Local Agent
 
-- Package: `@supdance/canvas-agent` 0.1.1; executable:
+- Package: `@supdance/canvas-agent` 0.1.3; executable:
   `supdance-canvas-agent`.
 - MCP process uses stdio and forwards tools to the local HTTP Agent.
 - HTTP Agent binds to `127.0.0.1:17372` and uses the separate
@@ -86,6 +86,8 @@ handshake. Keep Agent and website changes on matching releases.
   approximately 3-second retry cadence, and offline state after three failures.
 - Do not claim image generation, storage, or credit settlement from connection
   checks. Do not run a paid generation as part of plugin acceptance.
-- Package 0.1.1 requires the paired website source release. The independent
-  npm package has not been published; until then, distribute from a checkout or
-  supplied tarball.
+- The live website currently supports protocol 6 and ticket-based SSE, and
+  0.1.3 connected to it in the acceptance run. The live bundle's source
+  commit remains unidentified; do not deploy a replacement site build until
+  its provenance is established. The independent npm package has not been
+  published; distribute from a checkout or supplied tarball.

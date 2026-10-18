@@ -483,7 +483,6 @@ export function startHttpServer() {
         console.log("SupDance Canvas Agent");
         checkVersions();
         console.log(`Local URL: ${config.url}`);
-        console.log(`Connect token: ${config.token}`);
         console.log("Codex MCP is not installed by this command.");
         console.log("Codex MCP is provided by the SupDance Canvas plugin.");
         console.log("Remove manually added MCP: codex mcp remove supdance-canvas");

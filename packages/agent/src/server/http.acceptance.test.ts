@@ -30,9 +30,11 @@ test("local Agent identity and one-use SSE tickets enforce version, origin, and 
         path.join(packageRoot, "src/index.ts"),
     ], {
         cwd: packageRoot,
-        env: { ...process.env, HOME: home, USERPROFILE: home, PORT: String(port) },
-        stdio: "ignore",
+        env: { ...process.env, SUPDANCE_CANVAS_CONFIG_DIR: configDir, PORT: String(port) },
+        stdio: ["ignore", "pipe", "ignore"],
     });
+    let stdout = "";
+    child.stdout?.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
     t.after(async () => {
         await stop(child);
         fs.rmSync(home, { recursive: true, force: true });
@@ -42,6 +44,9 @@ test("local Agent identity and one-use SSE tickets enforce version, origin, and 
     assert.equal(identity.service, "supdance-canvas-agent");
     assert.equal(identity.agentVersion, VERSION);
     assert.equal(identity.protocolVersion, 6);
+    await waitForOutput(() => stdout.includes(`Local URL: ${baseUrl}`));
+    assert.doesNotMatch(stdout, /Connect token:/);
+    assert.doesNotMatch(stdout, /acceptance-only-agent-token/);
 
     const queryTokenResponse = await fetch(`${baseUrl}/identity?token=acceptance-only-agent-token`);
     assert.equal(queryTokenResponse.status, 401, "the long-lived token must not authorize through a URL query");
@@ -106,6 +111,14 @@ async function waitForIdentity(baseUrl: string, token: string) {
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new Error("SupDance Canvas Agent did not become ready for acceptance");
+}
+
+async function waitForOutput(check: () => boolean) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+        if (check()) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error("SupDance Canvas Agent startup output did not arrive");
 }
 
 async function issueTicket(baseUrl: string, token: string, clientId: string) {

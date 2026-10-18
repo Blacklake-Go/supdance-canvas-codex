@@ -66,11 +66,11 @@ export function getAgentIdentityError(value: Identity, expectedUrl: string): str
     if (!value.agentVersion) {
         return `A legacy SupDance Canvas Agent is running at ${expectedUrl}; install version ${VERSION}, stop the old Agent, then retry.`;
     }
-    if (value.agentVersion !== VERSION) {
-        return `SupDance Canvas Agent version mismatch at ${expectedUrl}: running ${value.agentVersion}, expected ${VERSION}. Stop the old Agent, then retry.`;
-    }
     if (value.protocolVersion !== AGENT_PROTOCOL_VERSION) {
         return `SupDance Canvas Agent protocol mismatch: running ${String(value.protocolVersion)}, expected ${AGENT_PROTOCOL_VERSION}. Update the local Agent, then retry.`;
+    }
+    if (!isCompatibleAgentVersion(value.agentVersion, VERSION)) {
+        return `SupDance Canvas Agent version mismatch at ${expectedUrl}: running ${value.agentVersion}, expected ${VERSION} or a newer compatible 0.${VERSION.split(".")[1]}.x release using protocol ${AGENT_PROTOCOL_VERSION}.`;
     }
     if (value.url !== expectedUrl) {
         return `SupDance Canvas Agent returned an unexpected local URL: ${value.url || "(missing)"}`;
@@ -78,9 +78,25 @@ export function getAgentIdentityError(value: Identity, expectedUrl: string): str
     return null;
 }
 
+/** 允许同一兼容线内更新的 patch 版本；协议版本仍须完全匹配。 */
+function isCompatibleAgentVersion(runningVersion: string, expectedVersion: string) {
+    const running = parseVersion(runningVersion);
+    const expected = parseVersion(expectedVersion);
+    return Boolean(running && expected
+        && running.major === expected.major
+        && running.minor === expected.minor
+        && running.patch >= expected.patch);
+}
+
+function parseVersion(version: string) {
+    const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
+    if (!match) return null;
+    return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+}
+
 async function identity(url: string, token: string): Promise<Identity | null> {
     try {
-        const response = await fetch(`${url}/identity`, { headers: { "x-canvas-agent-token": token }, signal: AbortSignal.timeout(1000) });
+        const response = await fetch(`${url}/identity`, { headers: { "x-canvas-agent-token": token }, signal: AbortSignal.timeout(3000) });
         if (!response.ok) return null;
         return await response.json() as Identity;
     } catch {

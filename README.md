@@ -13,15 +13,16 @@ MCP name, and loopback port from the upstream Infinite Canvas plugin.
   `plugins/supdance-canvas/.codex-plugin/`.
 - A website build that supports the SupDance Agent v6 connection-ticket API:
   `POST /events-ticket` with `x-canvas-agent-token`, followed by
-  `GET /events?ticket=...`. This website change is in the paired
-  `canvas-web-supdance-security` candidate branch and must be deployed before
-  Agent 0.1.1 is used with the live website.
+  `GET /events?ticket=...`. The current public JavaScript bundle contains
+  these protocol markers and fragment bootstrap handling. Its exact source
+  commit is still unknown; do not deploy another website build until its source
+  is matched.
 
 ## Install from this checkout
 
-The 0.1.1 package is a candidate. Do not switch the installed Agent or plugin
-to this version until the paired website change is deployed. The live page
-currently uses the older connection protocol.
+The 0.1.3 package is a candidate. The live page exposes the v6
+header-authenticated ticket flow. CLI MCP read/write and browser reconnect
+acceptance completed on 2026-10-18; desktop app tool loading remains open.
 
 The paired website changes are included as
 [`website-adaptation.patch`](website-adaptation.patch). It is based on the
@@ -34,7 +35,7 @@ cd packages/agent
 npm ci
 npm run build
 npm pack
-npm install -g ./supdance-canvas-agent-0.1.1.tgz
+npm install -g ./supdance-canvas-agent-0.1.3.tgz
 cd ../..
 codex plugin marketplace add "$(pwd)"
 codex plugin add supdance-canvas@supdance-local
@@ -55,14 +56,14 @@ the Codex browser is unavailable, run `supdance-canvas-agent open` to use the
 system browser. The local package is not published to npm; install it from this
 checkout or a supplied package archive.
 
-A prebuilt 0.1.1 candidate tarball is available at
-[`releases/supdance-canvas-agent-0.1.1.tgz`](releases/supdance-canvas-agent-0.1.1.tgz).
-Install it with `npm install -g ./releases/supdance-canvas-agent-0.1.1.tgz`.
+A prebuilt 0.1.3 candidate tarball is available at
+[`releases/supdance-canvas-agent-0.1.3.tgz`](releases/supdance-canvas-agent-0.1.3.tgz).
+Install it with `npm install -g ./releases/supdance-canvas-agent-0.1.3.tgz`.
 
 If port `17372` is occupied, `open` checks the Agent identity before using it.
-The 0.1.1 Agent reports its package and protocol versions; an older Agent or
-an unrelated service receives a specific conflict message instead of being
-silently reused.
+It reuses a newer patch release from the same `0.1.x` line only when protocol
+version 6 matches; older or incompatible versions and unrelated services get
+a specific error instead of being silently reused.
 
 ## Verify the connection
 

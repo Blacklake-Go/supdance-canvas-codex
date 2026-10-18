@@ -22,7 +22,7 @@ test("open-canvas explains when a legacy Agent without a version is already runn
     assert.match(error || "", new RegExp(VERSION.replaceAll(".", "\\.")));
 });
 
-test("open-canvas reports the running and expected Agent versions", () => {
+test("open-canvas rejects an older patch Agent even when it speaks the same protocol", () => {
     const error = getAgentIdentityError({
         ok: true,
         service: "supdance-canvas-agent",
@@ -31,14 +31,36 @@ test("open-canvas reports the running and expected Agent versions", () => {
         url: "http://127.0.0.1:17372",
     }, "http://127.0.0.1:17372");
 
-    assert.match(error || "", new RegExp(`running 0\\.1\\.0, expected ${VERSION.replaceAll(".", "\\.")}`));
+    assert.match(error || "", new RegExp(`running 0\\.1\\.0, expected ${VERSION.replaceAll(".", "\\.")} or a newer compatible`));
+});
+
+test("open-canvas accepts a newer patch Agent when the protocol matches", () => {
+    assert.equal(getAgentIdentityError({
+        ok: true,
+        service: "supdance-canvas-agent",
+        agentVersion: "0.1.7",
+        protocolVersion: 6,
+        url: "http://127.0.0.1:17372",
+    }, "http://127.0.0.1:17372"), null);
+});
+
+test("open-canvas rejects a different compatibility line even when the protocol matches", () => {
+    const error = getAgentIdentityError({
+        ok: true,
+        service: "supdance-canvas-agent",
+        agentVersion: "0.2.0",
+        protocolVersion: 6,
+        url: "http://127.0.0.1:17372",
+    }, "http://127.0.0.1:17372");
+
+    assert.match(error || "", /version mismatch.*running 0\.2\.0/i);
 });
 
 test("open-canvas reports a protocol mismatch even when the Agent package version matches", () => {
     const error = getAgentIdentityError({
         ok: true,
         service: "supdance-canvas-agent",
-        agentVersion: "0.1.1",
+        agentVersion: VERSION,
         protocolVersion: 5,
         url: "http://127.0.0.1:17372",
     }, "http://127.0.0.1:17372");
@@ -50,13 +72,13 @@ test("open-canvas accepts the expected Agent identity", () => {
     assert.equal(getAgentIdentityError({
         ok: true,
         service: "supdance-canvas-agent",
-        agentVersion: "0.1.1",
+        agentVersion: VERSION,
         protocolVersion: 6,
         url: "http://127.0.0.1:17372",
     }, "http://127.0.0.1:17372"), null);
 });
 
-test("open reports an old Agent process instead of silently reusing it", { timeout: 10_000 }, async () => {
+test("open reports an older Agent process instead of silently reusing it", { timeout: 10_000 }, async () => {
     await withIdentityServer({
         ok: true,
         service: "supdance-canvas-agent",
@@ -65,7 +87,7 @@ test("open reports an old Agent process instead of silently reusing it", { timeo
     }, async (url) => {
         const result = await runOpen(url);
         assert.equal(result.code, 1);
-        assert.match(result.stderr, /version mismatch.*running 0\.1\.0, expected 0\.1\.1/i);
+        assert.match(result.stderr, new RegExp(`version mismatch.*running 0\\.1\\.0, expected ${VERSION.replaceAll(".", "\\.")} or a newer compatible`, "i"));
     });
 });
 
@@ -126,7 +148,7 @@ async function runOpen(url: string) {
                 "--no-browser",
             ], {
                 cwd: packageRoot,
-                env: { ...process.env, HOME: home, USERPROFILE: home },
+                env: { ...process.env, SUPDANCE_CANVAS_CONFIG_DIR: configDir },
                 stdio: ["ignore", "ignore", "pipe"],
             });
             let stderr = "";

@@ -1,16 +1,16 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import {inspect} from "node:util";
 
 import winston, {format, transports, type Logger as WinstonLogger} from "winston";
 
+import {CONFIG_DIR} from "../config.js";
 import {formatDateForFilename} from "./date.js";
 
 /** 管理 Canvas Agent 的终端与文件 Debug 日志。 */
 export class Logger {
     readonly enabled = process.argv.includes("--debug");
-    readonly filePath = this.enabled ? path.join(os.homedir(), ".supdance-canvas", "logs", `canvas-agent-${formatDateForFilename()}.log`) : "";
+    readonly filePath = this.enabled ? path.join(CONFIG_DIR, "logs", `canvas-agent-${formatDateForFilename()}.log`) : "";
     private readonly logger: WinstonLogger;
 
     /** 普通模式输出 Info 以上日志，Debug 模式额外输出 Debug 并写入文件。 */

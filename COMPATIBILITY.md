@@ -1,138 +1,35 @@
 # Compatibility and acceptance
 
-## Compatibility matrix
+## Release candidate 0.1.3 — 2026-10-18
 
-| Layer | Candidate requirement | Evidence |
+| Layer | Result | Evidence and limit |
 | --- | --- | --- |
-| Codex CLI | Plugin-aware Codex CLI; verified on `0.162.0-alpha.17.2` | CLI lists `supdance-canvas@supdance-local` installed and enabled; this task successfully called its live canvas tool. |
-| Node.js | `>=18` | Package declares Node 18 minimum; local workstation uses `v26.7.0`. |
-| SupDance plugin | `0.1.1` | Independent plugin manifest and `@supdance/canvas-agent` package. |
-| Plugin format | Codex local/Git marketplace plus portable Agent Plugins 1.0.0 manifest | Codex CLI `0.162.0-alpha.17.2` installed and listed candidate `0.1.1` from both the local checkout and the private GitHub marketplace in isolated `CODEX_HOME` directories. The portable non-Codex install path has not been exercised. |
-| MCP | Protocol version `6` | Kept aligned with the existing website Agent protocol. |
-| Website | Must implement header-authenticated `POST /events-ticket` and ticket-authenticated `GET /events` | Implemented in the paired website candidate; production deployment has not been confirmed. |
-| Operating system | macOS local Agent workflow | Verified on the current macOS workstation. Windows and Linux browser-launch behavior has not been checked. |
+| Agent package | Built and packed | `@supdance/canvas-agent@0.1.3` needs Node.js 18+. TypeScript build succeeded and 135/135 package tests passed. |
+| Codex CLI plugin | Connected | `supdance-canvas@supdance-local` is enabled. A fresh CLI session loaded the MCP tools, read the live board, and created one explicitly authorized text node. |
+| Website connection | Connected | Local Chrome opened `https://canvas.supdance.com/canvas`; the page displayed **Codex 已连接** and the text node. No connection token appeared in the browser URL. |
+| Agent restart | Reconnected automatically | An isolated candidate Agent on `127.0.0.1:17373` connected to the same live board. Stopping it changed the page to **连接失败**; restarting it restored **Codex 已连接** without user input. |
+| Desktop Codex app | Open | A fresh desktop task did not expose the SupDance MCP tools although the CLI plugin is enabled. The app's plugin refresh/restart path remains unresolved. |
+| Paid generation | Not exercised | No image, video, or audio generation was invoked. Asset storage and credit settlement are outside this connection acceptance. |
 
-The package has not been published to npm. Do not use `npx @supdance/canvas-agent`
-until a public or private npm release exists. Install the tarball produced by
-`npm pack` from this source checkout.
+The isolated 0.1.3 Agent used `SUPDANCE_CANVAS_CONFIG_DIR` and port `17373`; it did not replace the unrelated `@supdance/canvas-agent-workbuddy` service on port `17372`. The 0.1.3 startup output does not print the long-lived connect token.
 
-## Connection acceptance
+The successful CLI tool call used `--approve-for-me`. The default CLI policy on this workstation rejected the same MCP call with “MCP tool call requires approval, but approval policy is never.” Plugin registration alone does not imply tool calls are approved under every Codex policy.
 
-### Candidate plugin install/uninstall — 2026-10-16
+## Compatibility
 
-- In isolated Codex configurations, both the local checkout and
-  `Blacklake-Go/supdance-canvas-codex --ref main` were added as the
-  `supdance-local` marketplace; each installed `supdance-canvas` version
-  `0.1.1`.
-- The private Git marketplace resolved to commit
-  `d6fa109e326abf518dd1790c15f74dfb7af6b5fd`. `codex plugin list` confirmed
-  the candidate version and enabled status. The local-checkout installation
-  also showed the `supdance-canvas` server entry in `codex mcp list`.
-- In both isolated configurations, the plugin and marketplace were removed,
-  and the final plugin lists contained no marketplace plugins.
-- This verifies Codex CLI registration and removal. It does not load the
-  candidate in a fresh interactive Codex task or verify its Agent against the
-  production website; the installed live plugin and Agent remain `0.1.0`.
+- **Codex CLI:** plugin-aware CLI `0.162.0-alpha.17.2` on this macOS host.
+- **Node.js:** package requirement `>=18`; tested locally with `v26.7.0`.
+- **Protocol:** Agent/website protocol version 6. Browser requests use `x-canvas-agent-token`; SSE starts with a one-use, origin/client-bound ticket from `POST /events-ticket`. Ticket lifetime is 60 seconds.
+- **Agent reuse:** a newer patch in the same `0.1.x` line is accepted only if protocol 6 matches; unrelated, older, and incompatible services are rejected.
+- **Distribution:** local Codex marketplace and npm tarball. The Agent has not been published to npm; install from this repository's release tarball.
+- **Platforms:** macOS browser workflow was exercised. Windows and Linux launch behavior and the portable non-Codex plugin format are unverified.
 
-## Live check — 2026-10-16
+## Website source provenance
 
-- The installed and enabled plugin and local Agent are `0.1.0`.
-- `codex mcp list` shows `supdance-canvas` enabled; it shows no
-  `infinite-canvas` MCP entry on this host.
-- Current `codex plugin list` and `codex plugin marketplace list` both exit
-  successfully. The working `supdance-local` marketplace points at this
-  repository; the previously reported broken `personal` marketplace is not
-  blocking the current CLI listing.
-- The authenticated local Agent identity endpoint on port `17372` reports
-  protocol `6`, but no package version. The protected config file has mode
-  `0600`. Candidate Agent `0.1.1` was invoked against this running legacy
-  process and returned a clear message to install `0.1.1`, stop the old Agent,
-  and retry. The old process was left running.
-- `supdance-canvas-agent open --handoff --mode=recent` opened the current
-  SupDance canvas through the local Agent.
-- The site showed **Codex 已连接**, and `canvas_get_state` returned
-  `hasCanvas: true` with the current board and its text node.
-- After restarting the local `0.1.0` Agent, the page showed a connection
-  failure and `canvas_get_state` reported no connected canvas. Clicking the
-  page's **连接** control restored the connection; `canvas_get_state` then
-  returned `hasCanvas: true` again. The current live release therefore recovers
-  by manual reconnect, while the candidate retry behavior still needs the
-  paired website release.
-- No image, video, audio, or other generation tool was called.
+The live site served `index-CwaX-uw5.js` and `index-BxQPPkSm.css` on 2026-10-18. The JavaScript SHA-256 was `2572fa0b87d761f852fa2a479d1ff2fe1b58055b10468c8273bae860469d13d5`. The public bundle contains the ticket endpoint, auth header, protocol checks, fragment bootstrap, and history replacement. Its exact source commit is still unknown. No website files were changed or deployed during this acceptance.
 
-## Fresh Codex task — 2026-10-16
+[`website-adaptation.patch`](website-adaptation.patch) is based on `infinite-canvas` commit `f1ad63d`; it is reference material until the exact source for the live bundle is identified.
 
-A separate Codex task, `SupDance Canvas 插件新任务验收`, loaded the installed
-plugin and MCP, used the open-canvas flow, and read the same current board with
-`hasCanvas: true` (one existing node, zero connections). It created no content
-and triggered no generation. This verifies the installed 0.1.0 plugin in a
-fresh task; it does not verify the 0.1.1 candidate.
+## Previous acceptance — 2026-10-16
 
-This verifies the existing independent `0.1.0` plugin against the live website.
-Candidate `0.1.1` changes the connection contract: browser API requests use
-headers and SSE uses a one-use ticket. Its paired website worktree contains
-that contract, but production still serves the older bundle, so `0.1.1` has not
-been installed or deployed.
-
-The current dirty `canvas-web` checkout was built in an isolated temporary copy
-with `build:koyosim`; it produced `index-Ddu1Q_yM.js` and
-`index-BiwMqt3B.css`. A fresh check on 2026-10-16 confirmed production still
-serves `index-Cki82JQU.js` and `index-CrKn1nWx.css`. Their live SHA-256 values
-are `c68ccbf90badfea51ec4f33b743fcd33f6d1ee36959bb5034ac43a3c747743ed` and
-`914ca524b6ddcaa9bf90779a60d496ccbbaa19938f1c2242ab43da14a2a64d5e`.
-The current local `web/dist` files are `index-Df2M1XAa.js` and
-`index-MBAT8Yma.css`; their hashes differ from production. An earlier local
-copy that appeared to match is stale and is not a usable source snapshot.
-
-The known GitHub source candidate is
-`https://github.com/basketikun/infinite-canvas.git`. Its remote `main` currently
-points to `3a6b64b602ad062b29fac66902ed18a7ef5fd9dc` (2026-10-10), which only
-adds workspace lock/config files and does not identify the SupDance production
-source. The local `f1ad63d` baseline also builds different assets. No exact
-repository commit or CI artifact has been tied to the production hashes yet.
-
-A second isolated build from the clean local Git base `f1ad63d` produced
-`index-DKVuycuP.js` and `index-BxQPPkSm.css`, which also do not match the live
-assets. Server backup inspection found an older 2026-10-14 working-tree archive
-at `HEAD c0c584b`; its recorded build asset is `index-CXbkrMS3.js`, also not the
-current live `index-Cki82JQU.js`. The Canvas host has static files but no source
-checkout or source map. A server-side source search found only a separate
-Next.js release copy for the main site, plus older Canvas build/source archives;
-none matches the current live asset hashes. Keep the paired website change off
-production until its exact source or build provenance is located.
-
-The 0.1.1 Agent identity endpoint now reports both the Agent package version
-and protocol version. The `open` command explains a legacy Agent, a package
-version mismatch, or a protocol mismatch instead of silently reusing an old
-process on port 17372.
-
-The 0.1.1 Agent package was rebuilt and packed after this change. Its complete
-test suite passes 133/133 tests, and the TypeScript build succeeds. Local HTTP
-acceptance tests on temporary home directories and ports verify Agent and
-protocol versions, clear errors for an old Agent or another process occupying
-the port, rejection of a long-lived token in the query, exact-origin/client
-binding, one-use SSE tickets, and launch redirects for new, recent, choose, and
-specific canvases. Launch credentials are placed in the fragment, not the query.
-The source sets ticket expiry to 60 seconds. These are candidate-package
-checks; site restart and retry behavior still requires a matching website
-release.
-
-The `0.1.1` release acceptance check must confirm all of the following without
-running a paid generation:
-
-- A fresh Codex task loads `supdance-canvas` and `canvas_get_state` returns the
-  current site board.
-- A text node can be created and read back, proving MCP-to-website operations.
-- The website uses port `17372`, stores the long-lived token in the current tab
-  session only, and has no bearer token in query strings or browser history.
-- An SSE ticket expires after 60 seconds, is tied to the exact origin and
-  client ID, and cannot be reused.
-- A dropped connection requests a replacement ticket on the existing
-  EventSource retry cadence (about 3 seconds). After three consecutive
-  failures the page shows the Agent as offline while retrying continues; the
-  connection panel keeps a manual reconnect action.
-- Local Agent restart reconnects the website without exposing the long-lived
-  token or requiring manual token entry.
-
-The Codex plugin and tool checks do not establish image generation, asset
-storage, or credit settlement.
+The earlier 0.1.0 plugin loaded in a fresh Codex task and read a current board with `hasCanvas: true`; it created no content. That older live Agent recovered from a restart only after a manual **连接** click. This historical result should not be used as evidence for candidate 0.1.3. The separate current restart observation above establishes automatic browser reconnection for 0.1.3.
