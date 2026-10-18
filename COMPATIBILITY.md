@@ -1,17 +1,17 @@
 # Compatibility and acceptance
 
-## Release candidate plugin 0.1.6 / Agent 0.1.3 — 2026-10-18
+## Release candidate plugin 0.1.7 / Agent 0.1.3 — 2026-10-18
 
 | Layer | Result | Evidence and limit |
 | --- | --- | --- |
 | Agent package | Built and packed | `@supdance/canvas-agent@0.1.3` needs Node.js 18+. TypeScript build succeeded and 135/135 package tests passed. |
-| Codex CLI plugin | Connected | `supdance-canvas@supdance-local` 0.1.6 is enabled. A fresh CLI session loaded MCP tools and read the live board with `canvas_get_state`. |
+| Codex CLI plugin | Connected | Plugin 0.1.6 loaded MCP tools and read the live board with `canvas_get_state`, including under a restricted PATH. Plugin 0.1.7 adds the supplied logo to listing metadata; the MCP files are unchanged. |
 | Website connection | Connected | Local Chrome opened `https://canvas.supdance.com/canvas`; the page displayed **Codex 已连接** and the text node. No connection token appeared in the browser URL. |
 | Agent restart | Reconnected automatically | An isolated candidate Agent on `127.0.0.1:17373` connected to the same live board. Stopping it changed the page to **连接失败**; restarting it restored **Codex 已连接** without user input. |
-| Desktop Codex app | Pending | Logs showed `No such file or directory` for the Agent command and the CLI then reported that the portable stdio command must be a bare name or a path inside the plugin. Plugin 0.1.6 uses an executable launcher inside the plugin root and declares both portable and Codex MCP manifests. The launcher handshake and CLI tool call pass under a restricted PATH; the desktop app still needs to reload 0.1.6 and pass a new-task check. |
+| Desktop Codex app | Pending | Logs showed `No such file or directory` for the Agent command and the CLI then reported that the portable stdio command must be a bare name or a path inside the plugin. Plugin 0.1.6 fixed those MCP launch issues. Plugin 0.1.7 adds listing logo metadata. The desktop app still needs to reload 0.1.7 and pass a new-task check. |
 | Paid generation | Not exercised | No image, video, or audio generation was invoked. Asset storage and credit settlement are outside this connection acceptance. |
 
-The isolated 0.1.3 Agent used `SUPDANCE_CANVAS_CONFIG_DIR` and port `17373`; it did not replace the unrelated `@supdance/canvas-agent-workbuddy` service on port `17372`. The 0.1.3 startup output does not print the long-lived connect token. Plugin 0.1.6 provides its own MCP launch script; the Agent package remains 0.1.3.
+The isolated 0.1.3 Agent used `SUPDANCE_CANVAS_CONFIG_DIR` and port `17373`; it did not replace the unrelated `@supdance/canvas-agent-workbuddy` service on port `17372`. The 0.1.3 startup output does not print the long-lived connect token. Plugin 0.1.7 uses the MCP launch script added in 0.1.6 and includes the supplied logo; the Agent package remains 0.1.3.
 
 The successful CLI tool call used `--approve-for-me`. The default CLI policy on this workstation rejected the same MCP call with “MCP tool call requires approval, but approval policy is never.” Plugin registration alone does not imply tool calls are approved under every Codex policy.
 
@@ -22,7 +22,7 @@ The successful CLI tool call used `--approve-for-me`. The default CLI policy on 
 - **Protocol:** Agent/website protocol version 6. Browser requests use `x-canvas-agent-token`; SSE starts with a one-use, origin/client-bound ticket from `POST /events-ticket`. Ticket lifetime is 60 seconds.
 - **Agent reuse:** a newer patch in the same `0.1.x` line is accepted only if protocol 6 matches; unrelated, older, and incompatible services are rejected.
 - **Distribution:** local Codex marketplace and npm tarball. The Agent has not been published to npm; install from this repository's release tarball.
-- **GitHub marketplace:** a clean, isolated Codex configuration installed `supdance-canvas@supdance-local` version `0.1.6` from `Blacklake-Go/supdance-canvas-codex --ref main` after the `28b3b2a` push. The repository is currently private, so installers need repository access.
+- **GitHub marketplace:** a clean, isolated Codex configuration installed `supdance-canvas@supdance-local` version `0.1.6` from `Blacklake-Go/supdance-canvas-codex --ref main` after the `28b3b2a` push. Version 0.1.7 awaits a clean install check. The repository is currently private, so installers need repository access.
 - **Platforms:** macOS browser workflow was exercised. Windows and Linux launch behavior and the portable non-Codex plugin format are unverified.
 
 ## Website source provenance
@@ -35,6 +35,6 @@ The live site served `index-CwaX-uw5.js` and `index-BxQPPkSm.css` on 2026-10-18.
 
 The earlier 0.1.0 plugin loaded in a fresh Codex task and read a current board with `hasCanvas: true`; it created no content. That older live Agent recovered from a restart only after a manual **连接** click. This historical result should not be used as evidence for candidate 0.1.3. The separate current restart observation above establishes automatic browser reconnection for 0.1.3.
 
-## Desktop MCP launch investigation — candidate 0.1.6
+## Desktop MCP launch investigation — candidate 0.1.7
 
-The fresh desktop task's Codex log recorded `MCP startup failed: No such file or directory (os error 2)` for `supdance-canvas`. The plugin command name resolved in a login terminal but not in the desktop process environment. Plugin 0.1.5 then exposed a second issue: Codex's portable MCP loader rejects an absolute shell command, requiring a bare executable or a path inside the plugin. Plugin 0.1.6 uses `./scripts/mcp-launcher.sh` (a login zsh script) in both MCP manifests, and the root `plugin.json` declares `mcpServers: "./.mcp.json"` under `extensions.com.openai`. The launcher completed MCP `initialize` under `PATH=/usr/bin:/bin`, and a fresh CLI task called `canvas_get_state` successfully (`hasCanvas: true`, title `无限画布 2`, zero nodes). The desktop task must still reload 0.1.6 and repeat the tool call.
+The fresh desktop task's Codex log recorded `MCP startup failed: No such file or directory (os error 2)` for `supdance-canvas`. The plugin command name resolved in a login terminal but not in the desktop process environment. Plugin 0.1.5 then exposed a second issue: Codex's portable MCP loader rejects an absolute shell command, requiring a bare executable or a path inside the plugin. Plugin 0.1.6 uses `./scripts/mcp-launcher.sh` (a login zsh script) in both MCP manifests, and the root `plugin.json` declares `mcpServers: "./.mcp.json"` under `extensions.com.openai`. The launcher completed MCP `initialize` under `PATH=/usr/bin:/bin`, and a fresh CLI task called `canvas_get_state` successfully (`hasCanvas: true`, title `无限画布 2`, zero nodes). Plugin 0.1.7 adds `./assets/logo.png` to the plugin metadata without changing MCP configuration. The desktop task must still reload 0.1.7 and repeat the tool call.

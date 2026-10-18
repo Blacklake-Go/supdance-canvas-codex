@@ -20,7 +20,7 @@ MCP name, and loopback port from the upstream Infinite Canvas plugin.
 
 ## Install from this checkout
 
-The plugin is version 0.1.6 and includes the `@supdance/canvas-agent` 0.1.3
+The plugin is version 0.1.7 and includes the `@supdance/canvas-agent` 0.1.3
 package. The live page exposes the v6
 header-authenticated ticket flow. CLI MCP read/write and browser reconnect
 acceptance completed on 2026-10-18; desktop app tool loading remains open.

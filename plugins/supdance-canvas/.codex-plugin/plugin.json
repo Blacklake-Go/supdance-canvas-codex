@@ -1,6 +1,6 @@
 {
   "name": "supdance-canvas",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Connect Codex to the SupDance web canvas through the local SupDance Canvas Agent.",
   "author": { "name": "SupDance", "url": "https://canvas.supdance.com" },
   "homepage": "https://canvas.supdance.com/canvas",
@@ -15,6 +15,7 @@
     "category": "Productivity",
     "capabilities": ["Canvas", "MCP", "Creative Workflow"],
     "websiteURL": "https://canvas.supdance.com/canvas",
+    "logo": "./assets/logo.png",
     "defaultPrompt": ["打开 SupDance 画布", "读取当前画布并总结节点", "在当前画布创建提示词流程"]
   }
 }
