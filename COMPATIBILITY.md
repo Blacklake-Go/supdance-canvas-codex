@@ -22,6 +22,7 @@ The successful CLI tool call used `--approve-for-me`. The default CLI policy on 
 - **Protocol:** Agent/website protocol version 6. Browser requests use `x-canvas-agent-token`; SSE starts with a one-use, origin/client-bound ticket from `POST /events-ticket`. Ticket lifetime is 60 seconds.
 - **Agent reuse:** a newer patch in the same `0.1.x` line is accepted only if protocol 6 matches; unrelated, older, and incompatible services are rejected.
 - **Distribution:** local Codex marketplace and npm tarball. The Agent has not been published to npm; install from this repository's release tarball.
+- **GitHub marketplace:** a clean, isolated Codex configuration installed `supdance-canvas@supdance-local` version `0.1.3` from `Blacklake-Go/supdance-canvas-codex --ref main` after the `07369b0` push. The repository is currently private, so installers need repository access.
 - **Platforms:** macOS browser workflow was exercised. Windows and Linux launch behavior and the portable non-Codex plugin format are unverified.
 
 ## Website source provenance
