@@ -44,11 +44,12 @@ audited to confirm the original intent.
 | --- | --- | --- |
 | [`supdance-canvas-agent`](https://github.com/Blacklake-Go/supdance-canvas-agent) | Agent runtime source and release package, without the full Codex plugin marketplace tree. | Use only when working on the Agent package by itself. |
 | [`supdance-canvas-codex-plugin`](https://github.com/Blacklake-Go/supdance-canvas-codex-plugin) | Public standalone plugin and Agent source. Its current README describes plugin version `0.1.4`. | Older public plugin track; it is not the source currently loaded by this Codex install. |
-| `Blacklake-Go/supdance-canvas-codex` (this private repository) | Current local marketplace source, plugin `0.1.7`, Agent `0.1.3`, and paired website adaptation material. | **Canonical source for the current Codex plugin install and this acceptance record.** |
+| `Blacklake-Go/supdance-canvas-codex` (this public repository) | Canonical plugin and Agent source, plugin `0.1.7`, Agent `0.1.3`, and paired website adaptation material. | **Canonical source for the current Codex plugin install and this acceptance record.** |
 
 The Codex plugin is located at [`plugins/supdance-canvas/`](plugins/supdance-canvas/).
-Its installed marketplace source points to this private checkout. Keep future
-plugin updates here unless the publishing tracks are intentionally consolidated.
+The current desktop installation points to a local checkout of this repository.
+The public GitHub repository is also available as a marketplace source. Keep
+future plugin updates here unless the publishing tracks are intentionally consolidated.
 
 ## Install from this checkout
 
@@ -74,7 +75,7 @@ codex plugin marketplace add "$(pwd)"
 codex plugin add supdance-canvas@supdance-local
 ```
 
-After installing the paired Agent tarball, the private GitHub repository can
+After installing the paired Agent tarball, this public GitHub repository can
 also be used as the marketplace source:
 
 ```bash
