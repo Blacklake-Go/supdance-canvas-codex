@@ -19,3 +19,7 @@ and zero connections; no generation was run.
 The supplied SupDance logo is stored at [`assets/logo.png`](assets/logo.png).
 For installation and recovery instructions, see the repository
 [README](../../README.md) and [compatibility record](../../COMPATIBILITY.md).
+
+To remove the plugin, run `codex plugin remove supdance-canvas@supdance-local`.
+If you configured the MCP server manually, remove it with
+`codex mcp remove supdance-canvas`.

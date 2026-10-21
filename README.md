@@ -116,9 +116,22 @@ that the website and local Agent are connected.
 
 ## Uninstall
 
+Remove the Codex plugin and its marketplace registration:
+
 ```bash
 codex plugin remove supdance-canvas@supdance-local
 codex plugin marketplace remove supdance-local
+```
+
+If you added the MCP server manually, remove that registration separately:
+
+```bash
+codex mcp remove supdance-canvas
+```
+
+Remove the local SupDance Canvas Agent package when it is no longer needed:
+
+```bash
 npm uninstall -g @supdance/canvas-agent
 ```
 
