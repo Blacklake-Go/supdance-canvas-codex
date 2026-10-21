@@ -18,14 +18,44 @@ MCP name, and loopback port from the upstream Infinite Canvas plugin.
   commit is still unknown; do not deploy another website build until its source
   is matched.
 
+## Current desktop connection — 2026-10-21
+
+The Codex desktop plugin is enabled as `supdance-canvas@supdance-local` version
+`0.1.7`, with `@supdance/canvas-agent` version `0.1.3`. The current Codex task
+read the open canvas through `canvas_get_state` and returned `hasCanvas: true`.
+The page showed the local Agent as connected, and the connection remained
+available after a page refresh. No canvas nodes were added and no generation
+was started.
+
+- Canvas: [无限画布 3](https://canvas.supdance.com/canvas)
+- Screenshot: [screenshots/supdance-canvas-connected.jpg](screenshots/supdance-canvas-connected.jpg)
+
+![SupDance Canvas showing the connected local Agent](screenshots/supdance-canvas-connected.jpg)
+
+## Which repository to use
+
+The three similarly named repositories currently represent different publishing
+tracks. Based on their contents and versions, the duplication appears to come
+from splitting the Agent package from the Codex plugin and maintaining a
+separate integration/candidate repository; repository history has not been
+audited to confirm the original intent.
+
+| Repository | Role | Current use |
+| --- | --- | --- |
+| [`supdance-canvas-agent`](https://github.com/Blacklake-Go/supdance-canvas-agent) | Agent runtime source and release package, without the full Codex plugin marketplace tree. | Use only when working on the Agent package by itself. |
+| [`supdance-canvas-codex-plugin`](https://github.com/Blacklake-Go/supdance-canvas-codex-plugin) | Public standalone plugin and Agent source. Its current README describes plugin version `0.1.4`. | Older public plugin track; it is not the source currently loaded by this Codex install. |
+| `Blacklake-Go/supdance-canvas-codex` (this private repository) | Current local marketplace source, plugin `0.1.7`, Agent `0.1.3`, and paired website adaptation material. | **Canonical source for the current Codex plugin install and this acceptance record.** |
+
+The Codex plugin is located at [`plugins/supdance-canvas/`](plugins/supdance-canvas/).
+Its installed marketplace source points to this private checkout. Keep future
+plugin updates here unless the publishing tracks are intentionally consolidated.
+
 ## Install from this checkout
 
 The plugin is version 0.1.7 and includes the `@supdance/canvas-agent` 0.1.3
-package. The live page exposes the v6
-header-authenticated ticket flow. CLI MCP read/write, restricted-PATH launch,
-browser reconnect, and a fresh desktop task's 0.1.7 read/write acceptance
-completed on 2026-10-18. Acceptance created one test text node and did not run
-paid generation.
+package. The live page exposes the v6 header-authenticated ticket flow. CLI
+MCP and browser reconnect acceptance were completed on 2026-10-18; current
+desktop connection acceptance is recorded above and in `COMPATIBILITY.md`.
 
 The paired website changes are included as
 [`website-adaptation.patch`](website-adaptation.patch). It is based on the
