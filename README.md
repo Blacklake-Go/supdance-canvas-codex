@@ -18,14 +18,25 @@ MCP name, and loopback port from the upstream Infinite Canvas plugin.
   commit is still unknown; do not deploy another website build until its source
   is matched.
 
-## Current desktop connection — 2026-10-21
+## Latest website connection status
+
+The local plugin and Agent load, but the current deployed website does not yet
+complete the connection. The page's `/config` request succeeded, but its legacy
+`/events?token=...` request returned `401 invalid event ticket`;
+`canvas_get_state` therefore reported no connected canvas. The Agent accepts
+header-authenticated API requests and the one-use-ticket SSE flow. The paired
+Canvas frontend fix is tracked in the separate `Blacklake-Go/canvas`
+repository and must be deployed before live acceptance.
+
+## Previous desktop connection — 2026-10-21
 
 The Codex desktop plugin is enabled as `supdance-canvas@supdance-local` version
 `0.1.7`, with `@supdance/canvas-agent` version `0.1.3`. The current Codex task
 read the open canvas through `canvas_get_state` and returned `hasCanvas: true`.
 The page showed the local Agent as connected, and the connection remained
 available after a page refresh. No canvas nodes were added and no generation
-was started.
+was started. This earlier acceptance predates the latest observed
+website/Agent mismatch and does not establish the current live connection.
 
 - Canvas: [无限画布 3](https://canvas.supdance.com/canvas)
 - Screenshot: [screenshots/supdance-canvas-connected.jpg](screenshots/supdance-canvas-connected.jpg)

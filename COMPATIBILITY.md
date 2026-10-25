@@ -1,5 +1,17 @@
 # Compatibility and acceptance
 
+## Latest website connection check
+
+The installed plugin tools and local Agent can start, but the current website
+bundle still uses the legacy SSE query-token handshake. Its `/config` request
+reaches the local Agent; `GET /events?token=...` receives `401 invalid event
+ticket`, so the Agent reports no connected canvas and `canvas_get_state` cannot
+read it. A direct comparison confirmed that `POST /events-ticket` followed by
+`GET /events?ticket=...` returns `hello` with protocol version 6. Ordinary API
+requests also need the `x-canvas-agent-token` header. The matching website fix
+is in the separate `Blacklake-Go/canvas` repository; deploy it before treating
+the previous successful desktop acceptance as current.
+
 ## Codex desktop acceptance — 2026-10-21
 
 | Layer | Result | Evidence and limit |
