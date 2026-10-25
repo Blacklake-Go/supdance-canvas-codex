@@ -1,56 +1,68 @@
-import { spawn } from "node:child_process";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 
 import { AGENT_PROMPT } from "../config.js";
-import { createAgentLogWriter } from "../utils/agent-runtime.js";
-import { errorMessage } from "../utils/value.js";
 import type { AgentEmit } from "./types.js";
 
-/** 使用 Claude CLI 执行一次带 Canvas Agent 工具的任务。 */
-export function runClaudeTurn(prompt: string, emit: AgentEmit) {
-    const fullPrompt = withAgentPrompt(prompt);
-    if (!fullPrompt) return;
-    const child = spawnAgent("claude", ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--allowedTools", "mcp__supdance-canvas__*", fullPrompt], emit);
-    if (child) pipeJsonLines(child, emit, "claude");
-}
+const activeTurns = new Map<string, AbortController>();
+const turnClients = new Map<string, string>();
 
-/** 为 Claude CLI 请求拼接 Canvas Agent 指令。 */
-function withAgentPrompt(prompt: string) {
-    return prompt.trim() ? `${AGENT_PROMPT}\n\n用户请求：${prompt}` : "";
-}
+type ClaudeTurnOptions = { clientId?: string; onStart?: () => void; onFinish?: () => void };
 
-/** 将 Claude CLI 的 JSON Lines 输出转换为 Agent 事件。 */
-function pipeJsonLines(child: ReturnType<typeof spawn>, emit: AgentEmit, agent: string) {
-    let out = "";
-    const stderr = createAgentLogWriter((text) => emit("agent_log", { text }));
-    child.stdout?.on("data", (chunk) => {
-        out += chunk.toString();
-        const lines = out.split(/\r?\n/);
-        out = lines.pop() || "";
-        lines.filter(Boolean).forEach((line) => {
-            try {
-                emit("agent_event", { agent, ...JSON.parse(line) });
-            } catch {
-                emit("agent_event", { agent, type: "raw", text: line });
-            }
-        });
-    });
-    child.stderr?.on("data", (chunk) => stderr.write(chunk.toString()));
-    child.on("error", (error) => {
-        stderr.flush();
-        emit("agent_error", { message: error.message });
-    });
-    child.on("close", (code) => {
-        stderr.flush();
-        emit("agent_done", { agent, code });
-    });
-}
+/** 通过 Claude Agent SDK 运行本地 Claude Code 会话，并把工具连接到当前 Canvas Agent。 */
+export function runClaudeTurn(prompt: string, emit: AgentEmit, options: ClaudeTurnOptions = {}) {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) return { ok: false as const, error: "请输入任务内容" };
+    if (activeTurns.size) return { ok: false as const, error: "Claude 正在运行，请等待当前任务完成" };
 
-/** 启动外部 Agent CLI，并将同步启动异常转换为事件。 */
-function spawnAgent(name: string, args: string[], emit: AgentEmit) {
+    const turnId = crypto.randomUUID();
+    const controller = new AbortController();
+    const clientId = options.clientId || "";
     try {
-        return spawn(name, args, { stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32", windowsHide: true });
+        options.onStart?.();
     } catch (error) {
-        emit("agent_error", { message: errorMessage(error) });
-        return null;
+        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+    activeTurns.set(turnId, controller);
+    turnClients.set(turnId, clientId);
+    emit("agent_bootstrap", { type: "claude.started", turnId, sourceClientId: clientId || undefined });
+    void streamClaudeTurn(normalizedPrompt, turnId, clientId, controller, emit, options.onFinish);
+    return { ok: true as const, turnId };
+}
+
+/** 仅中断指定的 Claude turn，避免其他标签误停正在执行的任务。 */
+export function interruptClaudeTurn(turnId: string, clientId: string) {
+    const controller = activeTurns.get(turnId);
+    if (!controller || turnClients.get(turnId) !== clientId) return false;
+    controller.abort();
+    return true;
+}
+
+async function streamClaudeTurn(prompt: string, turnId: string, clientId: string, controller: AbortController, emit: AgentEmit, onFinish?: () => void) {
+    let code = 0;
+    try {
+        const stream = query({
+            prompt: `${AGENT_PROMPT}\n\n用户请求：${prompt}`,
+            options: {
+                abortController: controller,
+                mcpServers: {
+                    "supdance-canvas": { command: process.execPath, args: [process.argv[1] || "", "mcp"] },
+                },
+                allowedTools: ["mcp__supdance-canvas__*"],
+                systemPrompt: { type: "preset", preset: "claude_code" },
+                settingSources: ["user", "project", "local"],
+            },
+        });
+        for await (const message of stream) {
+            emit("agent_event", { agent: "claude", turnId, sourceClientId: clientId || undefined, ...message });
+            if (message.type === "result" && message.subtype !== "success") code = 1;
+        }
+    } catch (error) {
+        code = controller.signal.aborted ? 130 : 1;
+        emit("agent_error", { agent: "claude", turnId, sourceClientId: clientId || undefined, message: error instanceof Error ? error.message : String(error) });
+    } finally {
+        activeTurns.delete(turnId);
+        turnClients.delete(turnId);
+        emit("agent_done", { agent: "claude", turnId, sourceClientId: clientId || undefined, code });
+        onFinish?.();
     }
 }

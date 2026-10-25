@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const recordSchema = z.record(z.unknown());
+const recordSchema = z.record(z.string(), z.unknown());
 const positionSchema = z.object({ x: z.number(), y: z.number() });
 const viewportSchema = z.object({ x: z.number(), y: z.number(), k: z.number() });
 const nodeTypeSchema = z.enum(["image", "text", "config", "video", "audio"]);
@@ -124,7 +124,7 @@ export const toolInputSchemas = {
     prompts_search: z.object({ keyword: z.string().optional(), category: z.string().optional(), tags: z.array(z.string()).optional(), page: z.number().optional(), pageSize: z.number().optional() }),
     assets_list: z.object({ kind: z.enum(["all", "text", "image", "video"]).optional(), keyword: z.string().optional(), page: z.number().optional(), pageSize: z.number().optional() }),
     assets_add: z.object({ kind: z.enum(["text", "image"]), title: z.string(), content: z.string().optional(), imageUrl: z.string().optional(), tags: z.array(z.string()).optional(), source: z.string().optional(), note: z.string().optional() }),
-} satisfies Record<ToolName, z.AnyZodObject>;
+} satisfies Record<ToolName, z.ZodType>;
 
 export const toolDescriptions: Record<ToolName, string> = {
     site_navigate: "跳转网站页面。path 可为 / (首页)、/canvas (我的画布)、/canvas/:id (指定画布)、/image (生图工作台)、/video (视频创作台)、/prompts (提示词库)、/assets (我的素材)、/config (配置)。操作画布前若不在画布页，先用本工具打开画布。",

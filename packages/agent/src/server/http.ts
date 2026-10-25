@@ -4,7 +4,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 
-import { runClaudeTurn } from "../agent/claude.js";
+import { interruptClaudeTurn, runClaudeTurn } from "../agent/claude.js";
 import { archiveCodexThread, CodexSkillLookupError, configureCodexSkill, generateCodexSkillDraft, interruptCodexTurn, isRecoverableThreadError, listCodexModels, listCodexSkills, listCodexThreads, readCodexThread, resolveCodexApproval, resolveCodexSkill, resumeCodexThread, runCodexTurn, startCodexThread, summarizeCodexThread } from "../agent/codex.js";
 import type { CodexReasoningEffort, CodexSkillSelector } from "../agent/codex-protocol.js";
 import { messageMetadataStore } from "../agent/message-metadata.js";
@@ -469,8 +469,32 @@ export function startHttpServer() {
         res.status(ok ? 200 : 409).json({ ok, ...(ok ? {} : { error: "当前没有可停止的任务" }) });
     }));
     app.post("/agent/claude/turn", (req, res) => {
-        runClaudeTurn(String(req.body?.prompt || ""), emit);
-        res.json({ ok: true });
+        const clientId = String(req.body?.clientId || "");
+        if (!clientId || !session.hasClient(clientId)) return void res.status(409).json({ ok: false, error: "发起任务的网页已断开，请重新连接后再试" });
+        if (!session.beginCodexMutation()) return void res.status(409).json({ ok: false, code: "CONVERSATION_BUSY", error: "Agent 正在运行或正在切换会话，请稍后重试", state: session.conversationStateSnapshot });
+        const finish = () => {
+            session.releaseClient(clientId);
+            session.endCodexMutation();
+        };
+        try {
+            const result = runClaudeTurn(String(req.body?.prompt || ""), emit, {
+                clientId,
+                onStart: () => session.bindClient(clientId),
+                onFinish: finish,
+            });
+            if (!result.ok) {
+                finish();
+                return void res.status(result.error === "请输入任务内容" ? 400 : 409).json(result);
+            }
+            res.status(202).json(result);
+        } catch (error) {
+            finish();
+            throw error;
+        }
+    });
+    app.post("/agent/claude/interrupt", (req, res) => {
+        const ok = interruptClaudeTurn(String(req.body?.turnId || ""), String(req.body?.clientId || ""));
+        res.status(ok ? 200 : 409).json({ ok, ...(ok ? {} : { error: "当前没有可停止的 Claude 任务" }) });
     });
     app.use((_req, res) => res.status(404).json({ ok: false, error: "not found" }));
     app.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
